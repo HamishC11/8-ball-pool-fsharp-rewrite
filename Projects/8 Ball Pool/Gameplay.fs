@@ -10,16 +10,27 @@ type GameplayState =
     | Playing
     | Quit
 
+type Cue =
+    {Position : Vector3
+     Size : Vector3 }
+
+    static member initial =
+        {Position = v3 0
+        .0f 0.0f 0.0f
+         Size = v3 469f 11f 0.0f}
+
 // this is our MMCC model type representing gameplay.
 // this model representation uses update time, that is, time based on number of engine updates.
 type Gameplay =
     { GameplayTime : int64
-      GameplayState : GameplayState }
+      GameplayState : GameplayState 
+      Cue : Cue }
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
-          GameplayState = Quit }
+          GameplayState = Quit 
+          Cue = Cue.initial }
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
@@ -91,10 +102,14 @@ type GameplayDispatcher () =
 
         [// the scene group while playing
          if gameplay.GameplayState = Playing then
-            Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" []
+            Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Multiplayer.nugroup" []
                 [Content.staticModel "StaticModel"
                     [Entity.Position == v3 0.0f 0.0f -2.0f
-                     Entity.Rotation := Quaternion.CreateFromAxisAngle ((v3 1.0f 0.75f 0.5f).Normalized, gameplay.GameplayTime % 360L |> single |> Math.DegreesToRadians)]]
+                     Entity.Rotation := Quaternion.CreateFromAxisAngle ((v3 1.0f 0.75f 0.5f).Normalized, gameplay.GameplayTime % 360L |> single |> Math.DegreesToRadians)]
+                 Content.staticSprite "Cue"
+                    [Entity.Position := gameplay.Cue.Position
+                     Entity.Size == gameplay.Cue.Size
+                     Entity.StaticImage == Assets.Default.Ball]]
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []
