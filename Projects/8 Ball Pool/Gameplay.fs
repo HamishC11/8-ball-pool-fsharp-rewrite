@@ -109,7 +109,7 @@ type GameplayDispatcher () =
                  Content.staticSprite "Cue"
                     [Entity.Position := gameplay.Cue.Position
                      Entity.Size == gameplay.Cue.Size
-                     Entity.StaticImage == Assets.Default.Ball]]
+                     Entity.StaticImage == Assets.Default.spr_stick]]
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []
