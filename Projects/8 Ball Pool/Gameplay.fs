@@ -15,22 +15,37 @@ type Cue =
      Size : Vector3 }
 
     static member initial =
-        {Position = v3 0
-        .0f 0.0f 0.0f
-         Size = v3 469f 11f 0.0f}
+        { Position = v3 0.0f -100.0f 0.0f
+          Size = v3 400.0f 9.382f 0.0f}
+
+type Ball =
+    {Position : Vector3
+     Size : Vector3
+     Velocity : Vector3
+     }
+
+     static member initial =
+        { Position = v3 0.0f 0.0f 0.0f
+          Size = v3 25.0f 25.0f 0.0f
+          Velocity = v3 0.0f 0.0f 0.0f}
+
+     member this.positionNext =
+        this.Position + this.Velocity
 
 // this is our MMCC model type representing gameplay.
 // this model representation uses update time, that is, time based on number of engine updates.
 type Gameplay =
     { GameplayTime : int64
       GameplayState : GameplayState 
-      Cue : Cue }
+      Cue : Cue 
+      Ball : Ball}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
           GameplayState = Quit 
-          Cue = Cue.initial }
+          Cue = Cue.initial 
+          Ball = Ball.initial}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
@@ -103,19 +118,24 @@ type GameplayDispatcher () =
         [// the scene group while playing
          if gameplay.GameplayState = Playing then
             Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Multiplayer.nugroup" []
-                [Content.staticModel "StaticModel"
-                    [Entity.Position == v3 0.0f 0.0f -2.0f
-                     Entity.Rotation := Quaternion.CreateFromAxisAngle ((v3 1.0f 0.75f 0.5f).Normalized, gameplay.GameplayTime % 360L |> single |> Math.DegreesToRadians)]
-                 Content.staticSprite "Cue"
+                [Content.staticSprite "Cue"
                     [Entity.Position := gameplay.Cue.Position
                      Entity.Size == gameplay.Cue.Size
-                     Entity.StaticImage == Assets.Default.spr_stick]]
+                     Entity.StaticImage == Assets.Gameplay.cueImage]
+                 Content.staticSprite "PoolTable"
+                    [Entity.Position == v3 0.0f 0.0f 0.0f
+                     Entity.Size == v3 640f 360f 0.0f
+                     Entity.StaticImage == Assets.Gameplay.poolTable1]
+                 Content.staticSprite "CueBall"
+                    [Entity.Position := v3 -144.5f 0.0f 0.0f
+                     Entity.Size == gameplay.Ball.Size
+                     Entity.StaticImage == Assets.Gameplay.cueBallImage]]
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []
 
             [// quit
              Content.button Simulants.GameplayQuit.Name
-                [Entity.Position == v3 232.0f -144.0f 0.0f
+                [Entity.Position == v3 232.0f -200.0f 0.0f
                  Entity.Text == "Quit"
                  Entity.ClickEvent => StartQuitting]]]

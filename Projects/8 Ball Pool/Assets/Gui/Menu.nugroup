@@ -19,7 +19,7 @@
     [Text "Classic 8-ball"]]
    []]
   [ButtonDispatcher
-   [[DownImage [Default AnimatedModelAlbedo]]
+   [[DownImage [Default 2_players_button_hover]]
     [Name Multiplayer]
     [Position [-160 0 0]]
     [Size [151 32 0]]
@@ -27,7 +27,8 @@
     [UpImage [Default 2_players_button]]]
    []]
   [ButtonDispatcher
-   [[Name Singleplayer]
+   [[DownImage [Default 1_player_button_hover]]
+    [Name Singleplayer]
     [Position [-160 48 0]]
     [Size [151 32 0]]
     [SliceMargin [0 -4.6]]

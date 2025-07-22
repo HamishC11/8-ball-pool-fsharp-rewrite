@@ -15,8 +15,17 @@ module Assets =
 
         let PackageName = "Gui"
 
+        let backButtonImage = asset<Image> PackageName "back_button"
+        let backButtonHoverImage = asset<Image> PackageName "back_button_hover"
+        let continuebuttonImage = asset<Image> PackageName "continue_button"
+
+
     // these are assets from the Gui package. Also no assets here yet.
     [<RequireQualifiedAccess>]
     module Gameplay =
 
         let PackageName = "Gameplay"
+
+        let cueImage = asset<Image> PackageName "spr_stick"
+        let poolTable1 = asset<Image> PackageName "spr_background4"
+        let cueBallImage = asset<Image> PackageName "spr_ball2"
