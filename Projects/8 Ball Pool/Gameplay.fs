@@ -18,14 +18,14 @@ type Cue =
         { Position = v3 0.0f -100.0f 0.0f
           Size = v3 400.0f 9.382f 0.0f}
 
-type Ball =
+type CueBall =
     {Position : Vector3
      Size : Vector3
      Velocity : Vector3
      }
 
      static member initial =
-        { Position = v3 0.0f 0.0f 0.0f
+        { Position = v3 -144.5f 0.0f 0.0f
           Size = v3 25.0f 25.0f 0.0f
           Velocity = v3 0.0f 0.0f 0.0f}
 
@@ -38,24 +38,64 @@ type Gameplay =
     { GameplayTime : int64
       GameplayState : GameplayState 
       Cue : Cue 
-      Ball : Ball}
+      CueBall : CueBall}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
           GameplayState = Quit 
           Cue = Cue.initial 
-          Ball = Ball.initial}
+          CueBall = CueBall.initial}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
         { Gameplay.empty with
             GameplayState = Playing }
 
+    static member update gameplay world = 
+        match gameplay.GameplayState with
+        | Playing ->
+
+            //update cue
+            let gameplay =
+                let cue = gameplay.Cue
+                let cue = { cue with Position = gameplay.CueBall.Position }
+                { gameplay with Cue = cue}
+
+            //update cueball
+            let gameplay =
+                // update pos
+                let cueBall = gameplay.CueBall
+                let cueBall = 
+                    { cueBall with Position = cueBall.positionNext }
+
+                // friction
+                let friction = 0.98f
+                let cueBall = {cueBall with Velocity = cueBall.Velocity * friction}
+
+                // placeholder mover
+                let cueBall =
+                    if cueBall.Velocity.X < 0.1f then
+                        if World.isKeyboardKeyDown KeyboardKey.Space world then
+                            { cueBall with Velocity = (v3 (0.5f - Gen.randomf) (0.5f - Gen.randomf) 0.0f) * 10.0f }
+                        else
+                            cueBall
+                    else
+                        cueBall
+
+                { gameplay with CueBall = cueBall }
+
+
+            //end
+            gameplay
+
+        | Quit -> gameplay
+
 // this is our gameplay MMCC message type.
 type GameplayMessage =
     | StartPlaying
     | FinishQuitting
+    | Update
     | TimeUpdate
     interface Message
 
@@ -87,6 +127,7 @@ type GameplayDispatcher () =
     override this.Definitions (_, _) =
         [Screen.SelectEvent => StartPlaying
          Screen.DeselectingEvent => FinishQuitting
+         Screen.UpdateEvent => Update
          Screen.TimeUpdateEvent => TimeUpdate]
 
     // here we handle the above messages
@@ -99,6 +140,10 @@ type GameplayDispatcher () =
 
         | FinishQuitting ->
             let gameplay = Gameplay.empty
+            just gameplay
+
+        | Update ->
+            let gameplay = Gameplay.update gameplay world
             just gameplay
 
         | TimeUpdate ->
@@ -121,15 +166,17 @@ type GameplayDispatcher () =
                 [Content.staticSprite "Cue"
                     [Entity.Position := gameplay.Cue.Position
                      Entity.Size == gameplay.Cue.Size
-                     Entity.StaticImage == Assets.Gameplay.cueImage]
+                     Entity.StaticImage == Assets.Gameplay.cueImage
+                     Entity.Elevation == 2.0f]
                  Content.staticSprite "PoolTable"
                     [Entity.Position == v3 0.0f 0.0f 0.0f
                      Entity.Size == v3 640f 360f 0.0f
                      Entity.StaticImage == Assets.Gameplay.poolTable1]
                  Content.staticSprite "CueBall"
-                    [Entity.Position := v3 -144.5f 0.0f 0.0f
-                     Entity.Size == gameplay.Ball.Size
-                     Entity.StaticImage == Assets.Gameplay.cueBallImage]]
+                    [Entity.Position := gameplay.CueBall.Position
+                     Entity.Size == gameplay.CueBall.Size
+                     Entity.StaticImage == Assets.Gameplay.cueBallImage
+                     Entity.Elevation == 1.0f]]
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []

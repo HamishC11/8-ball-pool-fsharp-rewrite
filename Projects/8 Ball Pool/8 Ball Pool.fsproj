@@ -41,6 +41,7 @@
 	</Target>
 
 	<ItemGroup>
+		<Compile Include="Constants.fs" />
 		<Compile Include="Assets.fs" />
 		<Compile Include="Simulants.fs" />
 		<Compile Include="Events.fs" />

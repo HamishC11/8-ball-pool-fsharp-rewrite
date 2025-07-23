@@ -47,8 +47,8 @@ type MyGameDispatcher () =
             | Credits -> Desire Simulants.Credits
             | Gameplay -> Desire Simulants.Gameplay
          if myGame = Splash then Simulants.Splash.DeselectingEvent => ShowTitle
-         Simulants.TitleCredits.ClickEvent => ShowCredits
-         Simulants.TitlePlay.ClickEvent => ShowGameplay
+         Simulants.TitleMultiplayer.ClickEvent => ShowCredits
+         Simulants.TitleSingleplayer.ClickEvent => ShowGameplay
          Simulants.TitleExit.ClickEvent => Exit
          Simulants.CreditsBack.ClickEvent => ShowTitle
          Simulants.Gameplay.QuitEvent => ShowTitle]
