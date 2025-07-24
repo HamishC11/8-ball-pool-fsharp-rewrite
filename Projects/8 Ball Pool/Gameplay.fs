@@ -22,12 +22,14 @@ type CueBall =
     {Position : Vector3
      Size : Vector3
      Velocity : Vector3
+     MovingCheck : Boolean
      }
 
      static member initial =
         { Position = v3 -144.5f 0.0f 0.0f
           Size = v3 25.0f 25.0f 0.0f
-          Velocity = v3 0.0f 0.0f 0.0f}
+          Velocity = v3 0.0f 0.0f 0.0f
+          MovingCheck =  false}
 
      member this.positionNext =
         this.Position + this.Velocity
@@ -58,11 +60,23 @@ type Gameplay =
 
             //update cue
             let gameplay =
-                let cue = gameplay.Cue
-                let cue = { cue with Position = gameplay.CueBall.Position }
+                let cueBall = gameplay.CueBall
+                //let mousePos = World.getMousePosition world
+
+                //direction of mouse relative to cueball
+                // idk crap bruh this hard as hell im gonna need to think about it. Maybe create a travelable circle around the cueball that the cue follows? position determined by mousePos idk man
+                //let direction = Vector2.Normalize(mousePos - (v2 cueBall.Position.X cueball.Position.Y)
+
+                let cue =
+                    let cue = gameplay.Cue
+                    if not cueBall.MovingCheck then
+                        // Keep Cue behind Cueball
+                        { cue with Position = v3 (cueBall.Position.X - 220.0f) cueBall.Position.Y cueBall.Position.Z }
+                    else
+                        cue
                 { gameplay with Cue = cue}
 
-            //update cueball
+            //update cueball movement
             let gameplay =
                 // update pos
                 let cueBall = gameplay.CueBall
@@ -75,17 +89,33 @@ type Gameplay =
 
                 // placeholder mover
                 let cueBall =
-                    if cueBall.Velocity.X < 0.1f then
+                    if cueBall.Velocity.X < 0.1f && cueBall.Velocity.X > -0.1f then
                         if World.isKeyboardKeyDown KeyboardKey.Space world then
-                            { cueBall with Velocity = (v3 (0.5f - Gen.randomf) (0.5f - Gen.randomf) 0.0f) * 10.0f }
+                            // Launch in random direction
+                            { cueBall with 
+                                Velocity = (v3 (0.5f - Gen.randomf) (0.5f - Gen.randomf) 0.0f) * 40.0f 
+                                MovingCheck = true }
                         else
-                            cueBall
+                            {cueBall with MovingCheck = false}
                     else
                         cueBall
 
                 { gameplay with CueBall = cueBall }
 
-
+            //handle wall collision
+            let gameplay =
+                let cueBall = gameplay.CueBall
+                let cueBall =
+                    // short walls
+                    if cueBall.positionNext.X <= -285.5f || cueBall.positionNext.X >= 286.5f then
+                        { cueBall with Velocity = cueBall.Velocity.MapX negate}
+                    else cueBall
+                let cueBall =
+                    // long walls
+                    if cueBall.positionNext.Y <= -145.5f || cueBall.positionNext.Y >= +145.5f then
+                        { cueBall with Velocity = cueBall.Velocity.MapY negate}
+                    else cueBall
+                {gameplay with CueBall = cueBall}
             //end
             gameplay
 
