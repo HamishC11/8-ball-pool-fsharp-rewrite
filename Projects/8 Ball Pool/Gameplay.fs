@@ -12,11 +12,15 @@ type GameplayState =
 
 type Cue =
     {Position : Vector3
-     Size : Vector3 }
+     Size : Vector3 
+     Rotation : Quaternion 
+     Power : single }
 
     static member initial =
         { Position = v3 0.0f -100.0f 0.0f
-          Size = v3 400.0f 9.382f 0.0f}
+          Size = v3 400.0f 9.382f 0.0f
+          Rotation = Quaternion(0.0f, 0.0f, 0.0f, 0.0f)
+          Power = 1.0f}
 
 type CueBall =
     {Position : Vector3
@@ -60,19 +64,40 @@ type Gameplay =
 
             //update cue
             let gameplay =
+                let cue = gameplay.Cue
                 let cueBall = gameplay.CueBall
-                //let mousePos = World.getMousePosition world
+                let mousePos = World.getMousePosition2dScreen world
 
+                // Cue position handler
+
+                let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
                 //direction of mouse relative to cueball
-                // idk crap bruh this hard as hell im gonna need to think about it. Maybe create a travelable circle around the cueball that the cue follows? position determined by mousePos idk man
-                //let direction = Vector2.Normalize(mousePos - (v2 cueBall.Position.X cueball.Position.Y)
+                let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
+                //offset cue to cueball (account for power)
+                let cuePos2D = (cueBallPos2D + (direction2D * (-220.0f + -cue.Power)))
+                //get angle of direction vector
+                let angleRad = atan2 direction2D.Y direction2D.X
+                //convert to qauternion for Nu rotation
+                let rotationQuat = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, angleRad)
 
                 let cue =
-                    let cue = gameplay.Cue
+                    // handle all cue movements when no balls are moving
                     if not cueBall.MovingCheck then
-                        // Keep Cue behind Cueball
-                        { cue with Position = v3 (cueBall.Position.X - 220.0f) cueBall.Position.Y cueBall.Position.Z }
+                        let cue = 
+                            // min max func
+                            let clampedPower power = min 50.0f (max 1.0f power)
+                            if World.isKeyboardKeyDown KeyboardKey.S world then
+                                { cue with Power = clampedPower (cue.Power - 1.0f) }
+                            elif World.isKeyboardKeyDown KeyboardKey.W world then
+                                { cue with Power = clampedPower (cue.Power + 1.0f) }
+                            else cue
+                        { cue with 
+                            Position = v3 cuePos2D.X cuePos2D.Y cueBall.Position.Z 
+                            Rotation = rotationQuat }
                     else
+                        let cue =
+                            {cue with
+                                Power = Cue.initial.Power}
                         cue
                 { gameplay with Cue = cue}
 
@@ -87,14 +112,18 @@ type Gameplay =
                 let friction = 0.98f
                 let cueBall = {cueBall with Velocity = cueBall.Velocity * friction}
 
-                // placeholder mover
+                // Mover
+                let mousePos = World.getMousePosition2dScreen world
+                let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
+                //direction of mouse relative to cueball
+                let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
                 let cueBall =
                     if cueBall.Velocity.X < 0.1f && cueBall.Velocity.X > -0.1f then
-                        if World.isKeyboardKeyDown KeyboardKey.Space world then
-                            // Launch in random direction
+                        if World.isMouseButtonClicked MouseButton.MouseLeft world then
+                            // Launch in cue direction
                             { cueBall with 
-                                Velocity = (v3 (0.5f - Gen.randomf) (0.5f - Gen.randomf) 0.0f) * 40.0f 
-                                MovingCheck = true }
+                                Velocity = (v3 direction2D.X direction2D.Y 0.0f) * gameplay.Cue.Power
+                                MovingCheck = true}
                         else
                             {cueBall with MovingCheck = false}
                     else
@@ -197,7 +226,8 @@ type GameplayDispatcher () =
                     [Entity.Position := gameplay.Cue.Position
                      Entity.Size == gameplay.Cue.Size
                      Entity.StaticImage == Assets.Gameplay.cueImage
-                     Entity.Elevation == 2.0f]
+                     Entity.Elevation == 2.0f
+                     Entity.Rotation := gameplay.Cue.Rotation]
                  Content.staticSprite "PoolTable"
                     [Entity.Position == v3 0.0f 0.0f 0.0f
                      Entity.Size == v3 640f 360f 0.0f
