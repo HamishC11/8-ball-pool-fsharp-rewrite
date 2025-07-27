@@ -4,6 +4,7 @@ open System.Numerics
 open Prime
 open Nu
 open MyGame
+open MyGame.Constants
 
 // this represents the state of gameplay simulation.
 type GameplayState =
@@ -14,7 +15,7 @@ type Cue =
     {Position : Vector3
      Size : Vector3 
      Rotation : Quaternion 
-     Power : single }
+     Power : single}
 
     static member initial =
         { Position = v3 0.0f -100.0f 0.0f
@@ -31,12 +32,13 @@ type CueBall =
 
      static member initial =
         { Position = v3 -144.5f 0.0f 0.0f
-          Size = v3 25.0f 25.0f 0.0f
+          Size = v3 20.0f 20.0f 0.0f
           Velocity = v3 0.0f 0.0f 0.0f
           MovingCheck =  false}
 
      member this.positionNext =
         this.Position + this.Velocity
+        
 
 // this is our MMCC model type representing gameplay.
 // this model representation uses update time, that is, time based on number of engine updates.
@@ -61,20 +63,19 @@ type Gameplay =
     static member update gameplay world = 
         match gameplay.GameplayState with
         | Playing ->
-
             //update cue
             let gameplay =
                 let cue = gameplay.Cue
                 let cueBall = gameplay.CueBall
                 let mousePos = World.getMousePosition2dScreen world
-
-                // Cue position handler
-
                 let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
+
                 //direction of mouse relative to cueball
                 let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
+
                 //offset cue to cueball (account for power)
                 let cuePos2D = (cueBallPos2D + (direction2D * (-220.0f + -cue.Power)))
+
                 //get angle of direction vector
                 let angleRad = atan2 direction2D.Y direction2D.X
                 //convert to qauternion for Nu rotation
@@ -85,7 +86,7 @@ type Gameplay =
                     if not cueBall.MovingCheck then
                         let cue = 
                             // min max func
-                            let clampedPower power = min 50.0f (max 1.0f power)
+                            let clampedPower power = min MaxPower (max MinPower power)
                             if World.isKeyboardKeyDown KeyboardKey.S world then
                                 { cue with Power = clampedPower (cue.Power - 1.0f) }
                             elif World.isKeyboardKeyDown KeyboardKey.W world then
@@ -93,8 +94,9 @@ type Gameplay =
                             else cue
                         { cue with 
                             Position = v3 cuePos2D.X cuePos2D.Y cueBall.Position.Z 
-                            Rotation = rotationQuat }
+                            Rotation = rotationQuat}
                     else
+                        
                         let cue =
                             {cue with
                                 Power = Cue.initial.Power}
@@ -109,8 +111,7 @@ type Gameplay =
                     { cueBall with Position = cueBall.positionNext }
 
                 // friction
-                let friction = 0.98f
-                let cueBall = {cueBall with Velocity = cueBall.Velocity * friction}
+                let cueBall = {cueBall with Velocity = cueBall.Velocity * FrictionFactor}
 
                 // Mover
                 let mousePos = World.getMousePosition2dScreen world
@@ -124,12 +125,13 @@ type Gameplay =
                             { cueBall with 
                                 Velocity = (v3 direction2D.X direction2D.Y 0.0f) * gameplay.Cue.Power
                                 MovingCheck = true}
+
                         else
                             {cueBall with MovingCheck = false}
                     else
                         cueBall
 
-                { gameplay with CueBall = cueBall }
+                { gameplay with CueBall = cueBall}
 
             //handle wall collision
             let gameplay =
@@ -144,6 +146,18 @@ type Gameplay =
                     if cueBall.positionNext.Y <= -145.5f || cueBall.positionNext.Y >= +145.5f then
                         { cueBall with Velocity = cueBall.Velocity.MapY negate}
                     else cueBall
+                {gameplay with CueBall = cueBall}
+
+            // pocketing
+            let gameplay =
+                let cueBall = gameplay.CueBall
+
+                let cueBall =
+                    if IsInsideHole(cueBall.Position) then
+                        CueBall.initial
+                    else
+                        cueBall
+
                 {gameplay with CueBall = cueBall}
             //end
             gameplay
