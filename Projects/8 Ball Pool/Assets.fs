@@ -29,3 +29,6 @@ module Assets =
         let cueImage = asset<Image> PackageName "spr_stick"
         let poolTable1 = asset<Image> PackageName "spr_background4"
         let cueBallImage = asset<Image> PackageName "spr_ball2"
+        let redBallImage = asset<Image> PackageName "spr_redBall2"
+        let yellowBallImage = asset<Image> PackageName "spr_yellowBall2"
+        let blackBallImage = asset<Image> PackageName "spr_blackBall2"

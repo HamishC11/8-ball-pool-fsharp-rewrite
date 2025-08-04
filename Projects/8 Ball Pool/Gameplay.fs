@@ -27,8 +27,7 @@ type CueBall =
     {Position : Vector3
      Size : Vector3
      Velocity : Vector3
-     MovingCheck : Boolean
-     }
+     MovingCheck : Boolean}
 
      static member initial =
         { Position = v3 -144.5f 0.0f 0.0f
@@ -38,6 +37,27 @@ type CueBall =
 
      member this.positionNext =
         this.Position + this.Velocity
+
+type BallType = Cue | Red | Yellow | Black
+
+type Ball =
+    {Position : Vector3
+     Size : Vector3
+     Velocity : Vector3
+     Type : BallType
+     IsMoving : Boolean}
+
+    static member make (position: Vector3) (balltype: BallType) = 
+        { Position = position
+          Size = v3 20.0f 20.0f 0.0f
+          Velocity = v3 0.0f 0.0f 0.0f
+          Type = balltype
+          IsMoving =  false }
+
+    member this.positionNext =
+        this.Position + this.Velocity
+
+
         
 
 // this is our MMCC model type representing gameplay.
@@ -46,19 +66,36 @@ type Gameplay =
     { GameplayTime : int64
       GameplayState : GameplayState 
       Cue : Cue 
-      CueBall : CueBall}
+      CueBall : CueBall
+      Balls : Map<String, Ball>}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
           GameplayState = Quit 
           Cue = Cue.initial 
-          CueBall = CueBall.initial}
+          CueBall = CueBall.initial
+          Balls = Map.empty}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
+        // create array of balls
+        let redBalls = 
+            [ for i in 0 .. 5 ->
+                ("Red Ball " + (i+1).ToString(), Ball.make(v3 (50.0f + (single i * 15.0f)) 0.0f 0.0f) BallType.Red) ]
+        let yellowBalls = 
+            [ for i in 0 .. 5 ->
+                ("Yellow Ball " + (i+1).ToString(), Ball.make(v3 (-100.0f + (single i * 15.0f)) 0.0f 0.0f) BallType.Yellow) ]
+        let blackBall = ("Black Ball", Ball.make(v3 0.0f 50.0f 0.0f) BallType.Black)
+        let cueBall = ("Cue Ball", Ball.make(v3 -144.5f 0.0f 0.0f) BallType.Cue)
+
+        let balls =
+            cueBall :: blackBall :: yellowBalls @ redBalls
+            |> Map.ofList
+            
         { Gameplay.empty with
-            GameplayState = Playing }
+            GameplayState = Playing
+            Balls = balls}
 
     static member update gameplay world = 
         match gameplay.GameplayState with
@@ -66,7 +103,7 @@ type Gameplay =
             //update cue
             let gameplay =
                 let cue = gameplay.Cue
-                let cueBall = gameplay.CueBall
+                let cueBall = gameplay.Balls.["Cue Ball"]
                 let mousePos = World.getMousePosition2dScreen world
                 let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
 
@@ -83,7 +120,7 @@ type Gameplay =
 
                 let cue =
                     // handle all cue movements when no balls are moving
-                    if not cueBall.MovingCheck then
+                    if not cueBall.IsMoving then
                         let cue = 
                             // min max func
                             let clampedPower power = min MaxPower (max MinPower power)
@@ -106,7 +143,9 @@ type Gameplay =
             //update cueball movement
             let gameplay =
                 // update pos
-                let cueBall = gameplay.CueBall
+                let cueBall = gameplay.Balls.["Cue Ball"]
+                
+                // make it move
                 let cueBall = 
                     { cueBall with Position = cueBall.positionNext }
 
@@ -124,14 +163,16 @@ type Gameplay =
                             // Launch in cue direction
                             { cueBall with 
                                 Velocity = (v3 direction2D.X direction2D.Y 0.0f) * gameplay.Cue.Power
-                                MovingCheck = true}
+                                IsMoving = true}
 
                         else
-                            {cueBall with MovingCheck = false}
+                            {cueBall with IsMoving = false}
                     else
                         cueBall
 
-                { gameplay with CueBall = cueBall}
+                //update Ball list
+                let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
+                { gameplay with Balls = updatedBalls}
 
             //handle wall collision
             let gameplay =
@@ -147,6 +188,29 @@ type Gameplay =
                         { cueBall with Velocity = cueBall.Velocity.MapY negate}
                     else cueBall
                 {gameplay with CueBall = cueBall}
+
+            
+            //collision
+ //           let handleCollision (ballA: Ball) (ballB: Ball) =
+   //             let distance = Vector3.Distance(ballA.Position, ballB.Position)
+     //           if distance <= BallRadius then
+       //             let norm = Vector3.Normalize(ballA.Position - ballB.Position)
+         //           let relVel = ballA.Velocity - ballB.Velocity
+           //         let speed = Vector3.Dot(relVel, norm)
+             //       if speed > 0f then
+               //         let impulse = norm * speed
+                 //       let vA' = ballA.Velocity - impulse
+                   //     let vB' = ballB.Velocity + impulse
+                     //   { ballA with Velocity = vA' }, { ballB with Velocity = vB' }
+              //  else
+                //    ballA, ballB
+
+            //ball collision
+          //  let gameplay = 
+            //    let balls = gameplay.Balls
+              //  for (ballId, ball) in Map.toList balls do
+                //    handleCollision cueBall ball
+                            
 
             // pocketing
             let gameplay =
@@ -250,7 +314,19 @@ type GameplayDispatcher () =
                     [Entity.Position := gameplay.CueBall.Position
                      Entity.Size == gameplay.CueBall.Size
                      Entity.StaticImage == Assets.Gameplay.cueBallImage
-                     Entity.Elevation == 1.0f]]
+                     Entity.Elevation == 1.0f]
+                 for (ballId, ball) in Map.toList gameplay.Balls do
+                    Content.staticSprite ballId
+                        [Entity.Position := ball.Position
+                         Entity.Size == ball.Size
+                         Entity.Elevation == 1.0f
+                         if ball.Colour = "Red" then
+                            Entity.StaticImage == Assets.Gameplay.redBallImage
+                         elif ball.Colour = "Yellow" then
+                            Entity.StaticImage == Assets.Gameplay.yellowBallImage
+                         elif ball.Colour = "Black" then
+                            Entity.StaticImage == Assets.Gameplay.blackBallImage]]
+
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []
