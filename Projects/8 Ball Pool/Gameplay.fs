@@ -23,21 +23,6 @@ type Cue =
           Rotation = Quaternion(0.0f, 0.0f, 0.0f, 0.0f)
           Power = 1.0f}
 
-type CueBall =
-    {Position : Vector3
-     Size : Vector3
-     Velocity : Vector3
-     MovingCheck : Boolean}
-
-     static member initial =
-        { Position = v3 -144.5f 0.0f 0.0f
-          Size = v3 20.0f 20.0f 0.0f
-          Velocity = v3 0.0f 0.0f 0.0f
-          MovingCheck =  false}
-
-     member this.positionNext =
-        this.Position + this.Velocity
-
 type BallType = Cue | Red | Yellow | Black
 
 type Ball =
@@ -65,8 +50,7 @@ type Ball =
 type Gameplay =
     { GameplayTime : int64
       GameplayState : GameplayState 
-      Cue : Cue 
-      CueBall : CueBall
+      Cue : Cue
       Balls : Map<String, Ball>}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
@@ -74,7 +58,6 @@ type Gameplay =
         { GameplayTime = 0L
           GameplayState = Quit 
           Cue = Cue.initial 
-          CueBall = CueBall.initial
           Balls = Map.empty}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
@@ -176,7 +159,7 @@ type Gameplay =
 
             //handle wall collision
             let gameplay =
-                let cueBall = gameplay.CueBall
+                let cueBall = gameplay.Balls.["Cue Ball"]
                 let cueBall =
                     // short walls
                     if cueBall.positionNext.X <= -285.5f || cueBall.positionNext.X >= 286.5f then
@@ -187,7 +170,10 @@ type Gameplay =
                     if cueBall.positionNext.Y <= -145.5f || cueBall.positionNext.Y >= +145.5f then
                         { cueBall with Velocity = cueBall.Velocity.MapY negate}
                     else cueBall
-                {gameplay with CueBall = cueBall}
+                
+                //update Ball list
+                let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
+                { gameplay with Balls = updatedBalls}
 
             
             //collision
@@ -214,15 +200,19 @@ type Gameplay =
 
             // pocketing
             let gameplay =
-                let cueBall = gameplay.CueBall
+                let cueBall = gameplay.Balls.["Cue Ball"]
 
                 let cueBall =
                     if IsInsideHole(cueBall.Position) then
-                        CueBall.initial
+                        {cueBall with 
+                            Position = (v3 -144.0f 0.0f 0.0f)
+                            Velocity = (v3 0.0f 0.0f 0.0f) }
                     else
                         cueBall
 
-                {gameplay with CueBall = cueBall}
+                //update Ball list
+                let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
+                { gameplay with Balls = updatedBalls }
             //end
             gameplay
 
@@ -310,22 +300,19 @@ type GameplayDispatcher () =
                     [Entity.Position == v3 0.0f 0.0f 0.0f
                      Entity.Size == v3 640f 360f 0.0f
                      Entity.StaticImage == Assets.Gameplay.poolTable1]
-                 Content.staticSprite "CueBall"
-                    [Entity.Position := gameplay.CueBall.Position
-                     Entity.Size == gameplay.CueBall.Size
-                     Entity.StaticImage == Assets.Gameplay.cueBallImage
-                     Entity.Elevation == 1.0f]
                  for (ballId, ball) in Map.toList gameplay.Balls do
                     Content.staticSprite ballId
                         [Entity.Position := ball.Position
                          Entity.Size == ball.Size
                          Entity.Elevation == 1.0f
-                         if ball.Colour = "Red" then
+                         if ball.Type = BallType.Red then
                             Entity.StaticImage == Assets.Gameplay.redBallImage
-                         elif ball.Colour = "Yellow" then
+                         elif ball.Type = BallType.Yellow then
                             Entity.StaticImage == Assets.Gameplay.yellowBallImage
-                         elif ball.Colour = "Black" then
-                            Entity.StaticImage == Assets.Gameplay.blackBallImage]]
+                         elif ball.Type = BallType.Black then
+                            Entity.StaticImage == Assets.Gameplay.blackBallImage
+                         elif ball.Type = BallType.Cue then
+                            Entity.StaticImage == Assets.Gameplay.cueBallImage]]
 
 
          // the gui group
