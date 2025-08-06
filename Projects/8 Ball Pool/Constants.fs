@@ -6,16 +6,32 @@ open Nu
 
 module Constants =
     [<Literal>]
+
+    // friction factor for the table
     let FrictionFactor = 0.98f
 
     // Cue Power limits
     let MaxPower = 50.0f
     let MinPower = 1.0f
 
+    // triangle maker
+    let BallSpacing = 30.0f
+    let BaseX = 100.0f
+    let BaseY = 1.0f
+    let RowOffset = -15.0f
+
+    //generate starting triangle
+    let generateTrianglePositions () =
+        [ for row in 0 .. 4 do
+            for col in 0 .. row do
+                let x = float32 row * BallSpacing + BaseX
+                let y = float32 col * BallSpacing + BaseY + float32 row * RowOffset
+                yield v3 x y 0.0f ]
+
     // used for pocket collision
     let HoleRadius = 15.0f
     // used for ball collision
-    let BallRadius = 10.0f
+    let BallRadius = 14.0f
     // Hole centres
     let TopLeftHolePos = v3 -288.0f 148.33f 0.0f
     let TopMiddleHolePos = v3 0.67f 160.0f 0.0f

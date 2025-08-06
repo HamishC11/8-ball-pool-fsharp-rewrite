@@ -62,18 +62,28 @@ type Gameplay =
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
-        // create array of balls
-        let redBalls = 
-            [ for i in 0 .. 5 ->
-                ("Red Ball " + (i+1).ToString(), Ball.make(v3 (50.0f + (single i * 15.0f)) 0.0f 0.0f) BallType.Red) ]
-        let yellowBalls = 
-            [ for i in 0 .. 5 ->
-                ("Yellow Ball " + (i+1).ToString(), Ball.make(v3 (-100.0f + (single i * 15.0f)) 0.0f 0.0f) BallType.Yellow) ]
-        let blackBall = ("Black Ball", Ball.make(v3 0.0f 50.0f 0.0f) BallType.Black)
+
+        // generate balltype order
+        let ballTypes =
+            [ yield! List.replicate 7 BallType.Red
+              yield! List.replicate 7 BallType.Yellow
+              yield BallType.Black ]
+
+        // use position generator
+        let trianglePositions = generateTrianglePositions ()
+
+        //create balls, mapping each one to the triangle
+        let triangleBalls =
+            List.mapi (fun i pos ->
+                let id = "Ball " + string i
+                let ballType = List.item i ballTypes
+                (id, Ball.make pos ballType)
+            ) trianglePositions
+ 
         let cueBall = ("Cue Ball", Ball.make(v3 -144.5f 0.0f 0.0f) BallType.Cue)
 
         let balls =
-            cueBall :: blackBall :: yellowBalls @ redBalls
+            cueBall :: triangleBalls
             |> Map.ofList
             
         { Gameplay.empty with
@@ -127,13 +137,6 @@ type Gameplay =
             let gameplay =
                 // update pos
                 let cueBall = gameplay.Balls.["Cue Ball"]
-                
-                // make it move
-                let cueBall = 
-                    { cueBall with Position = cueBall.positionNext }
-
-                // friction
-                let cueBall = {cueBall with Velocity = cueBall.Velocity * FrictionFactor}
 
                 // Mover
                 let mousePos = World.getMousePosition2dScreen world
@@ -157,41 +160,110 @@ type Gameplay =
                 let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
                 { gameplay with Balls = updatedBalls}
 
+            //ball movement
+            let gameplay =
+                let balls = Map.toList gameplay.Balls
+                
+                let updatedBallList =
+                    [ for ballId, ball in balls do
+                        let updatedBall = 
+                            {ball with
+                                //update pos
+                                Position = ball.positionNext
+                                //friction
+                                Velocity = ball.Velocity * FrictionFactor}
+                        (ballId, updatedBall) ]
+                //update Ball list
+                let updatedBalls = Map.ofList updatedBallList
+                { gameplay with Balls = updatedBalls }
+
+
             //handle wall collision
             let gameplay =
-                let cueBall = gameplay.Balls.["Cue Ball"]
-                let cueBall =
-                    // short walls
-                    if cueBall.positionNext.X <= -285.5f || cueBall.positionNext.X >= 286.5f then
-                        { cueBall with Velocity = cueBall.Velocity.MapX negate}
-                    else cueBall
-                let cueBall =
-                    // long walls
-                    if cueBall.positionNext.Y <= -145.5f || cueBall.positionNext.Y >= +145.5f then
-                        { cueBall with Velocity = cueBall.Velocity.MapY negate}
-                    else cueBall
+                let balls = Map.toList gameplay.Balls
+                let updatedBallList =
+                    [ for ballId, ball in balls do
+                        // long walls
+                        let velocityX =
+                            if ball.positionNext.X <= -285.5f || ball.positionNext.X >= 286.5f then
+                                ball.Velocity.MapX negate
+                            else ball.Velocity
+
+                        // short walls
+                        let velocityY =
+                            if ball.positionNext.Y <= -145.5f || ball.positionNext.Y >= 145.5f then
+                                velocityX.MapY negate
+                            else velocityX
+
+                        let updatedBall = { ball with Velocity = velocityY }
+                        (ballId, updatedBall)
+                    ]
                 
                 //update Ball list
-                let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
-                { gameplay with Balls = updatedBalls}
+                let updatedBalls = Map.ofList updatedBallList
+                { gameplay with Balls = updatedBalls }
 
             
             //collision
- //           let handleCollision (ballA: Ball) (ballB: Ball) =
-   //             let distance = Vector3.Distance(ballA.Position, ballB.Position)
-     //           if distance <= BallRadius then
-       //             let norm = Vector3.Normalize(ballA.Position - ballB.Position)
-         //           let relVel = ballA.Velocity - ballB.Velocity
-           //         let speed = Vector3.Dot(relVel, norm)
-             //       if speed > 0f then
-               //         let impulse = norm * speed
-                 //       let vA' = ballA.Velocity - impulse
-                   //     let vB' = ballB.Velocity + impulse
-                     //   { ballA with Velocity = vA' }, { ballB with Velocity = vB' }
-              //  else
-                //    ballA, ballB
+            let handleCollision (ballA: Ball) (ballB: Ball) =
+                let distance = Vector3.Distance(ballA.Position, ballB.Position)
+                if distance <= BallRadius then
+                    // direction from between balls
+                    let dir = Vector3.Normalize(ballA.Position - ballB.Position)
+                    let relVel = ballA.Velocity - ballB.Velocity
+                    // projected combined speed of balls
+                    let speed = Vector3.Dot(dir, relVel)
+                    let impulse = dir * speed
+                    // distribute impulse
+                    let vA' = ballA.Velocity - impulse
+                    let vB' = ballB.Velocity + impulse
+
+                    // overlap correction
+                    let overlap = BallRadius - distance
+                    let correction = dir * (overlap / 2.0f)
+                    let newPosA = ballA.Position + correction
+                    let newPosB = ballB.Position - correction
+
+                    { ballA with 
+                        Velocity = vA'
+                        Position = newPosA},
+                    { ballB with 
+                        Velocity = vB'
+                        Position = newPosB}
+                else
+                    ballA, ballB
 
             //ball collision
+            let gameplay = 
+                let balls = Map.toList gameplay.Balls
+                let totalBalls = List.length balls
+
+                let mutable ballMap = Map.ofList balls
+
+
+                // iterate over every ball in list
+                for i in 0 .. totalBalls - 1 do
+                    //get current ball
+                    let (ballIdA, _ballAOriginal) = List.item i balls
+                    let ballA = Map.find ballIdA ballMap
+                    let mutable updatedBallA = ballA
+
+                    // iterate over all other balls
+                    for k in i + 1 .. totalBalls - 1 do
+                        let (ballIdB, _) = List.item k balls
+                        let ballB = Map.find ballIdB ballMap
+
+                        let (newA, newB) = handleCollision updatedBallA ballB
+
+                        // update both in the map
+                        updatedBallA <- newA
+                        ballMap <- ballMap |> Map.add ballIdB newB
+
+                    // update ballA after all interactions
+                    ballMap <- ballMap |> Map.add ballIdA updatedBallA
+
+                { gameplay with Balls = ballMap }
+                            
 
             // pocketing
             let gameplay =
