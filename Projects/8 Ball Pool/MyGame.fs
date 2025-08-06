@@ -12,6 +12,7 @@ type MyGame =
     | Title
     | Credits
     | Gameplay
+    | Pause 
 
 // this is our top-level MMCC message type.
 type MyGameMessage =
@@ -46,12 +47,16 @@ type MyGameDispatcher () =
             | Title -> Desire Simulants.Title
             | Credits -> Desire Simulants.Credits
             | Gameplay -> Desire Simulants.Gameplay
+            | Pause -> Desire Simulants.Pause
          if myGame = Splash then Simulants.Splash.DeselectingEvent => ShowTitle
          Simulants.TitleMultiplayer.ClickEvent => ShowCredits
          Simulants.TitleSingleplayer.ClickEvent => ShowGameplay
          Simulants.TitleExit.ClickEvent => Exit
          Simulants.CreditsBack.ClickEvent => ShowTitle
-         Simulants.Gameplay.QuitEvent => ShowTitle]
+         Simulants.Gameplay.QuitEvent => ShowTitle
+         Simulants.PauseContinue.ClickEvent => ShowGameplay
+         Simulants.PauseExit.ClickEvent => Exit]
+
 
     // here we handle the above messages
     override this.Message (_, message, _, _) =
@@ -59,6 +64,7 @@ type MyGameDispatcher () =
         | ShowTitle -> just Title
         | ShowCredits -> just Credits
         | ShowGameplay -> just Gameplay
+        | ShowPause -> just Pause
 
     // here we handle the above commands
     override this.Command (_, command, _, world) =
@@ -70,4 +76,5 @@ type MyGameDispatcher () =
         [Content.screen Simulants.Splash.Name (Slide (Constants.Dissolve.Default, Constants.Slide.Default, None, Simulants.Title)) [] []
          Content.screenWithGroupFromFile Simulants.Title.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/Menu.nugroup" [] []
          Content.screenWithGroupFromFile Simulants.Credits.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/Credits.nugroup" [] []
-         Content.screen<GameplayDispatcher> Simulants.Gameplay.Name (Dissolve (Constants.Dissolve.Default, None)) [] []]
+         Content.screen<GameplayDispatcher> Simulants.Gameplay.Name (Dissolve (Constants.Dissolve.Default, None)) [] []
+         Content.screenWithGroupFromFile Simulants.Pause.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/PauseMenu.nugroup" [] []]

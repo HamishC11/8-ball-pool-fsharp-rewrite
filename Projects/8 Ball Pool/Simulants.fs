@@ -28,3 +28,9 @@ module Simulants =
     let GameplayGui = Gameplay / "Gui"
     let GameplayQuit = GameplayGui / "Quit"
     let GameplayScene = Gameplay / "Scene"
+
+    // pause menu screen
+    let Pause = Game / "Pause"
+    let PauseGui = Pause / "Gui"
+    let PauseContinue = PauseGui / "Continue"
+    let PauseExit = PauseGui / "Exit"

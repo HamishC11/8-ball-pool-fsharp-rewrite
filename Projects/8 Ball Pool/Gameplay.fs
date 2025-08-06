@@ -192,11 +192,6 @@ type Gameplay =
                 //    ballA, ballB
 
             //ball collision
-          //  let gameplay = 
-            //    let balls = gameplay.Balls
-              //  for (ballId, ball) in Map.toList balls do
-                //    handleCollision cueBall ball
-                            
 
             // pocketing
             let gameplay =
