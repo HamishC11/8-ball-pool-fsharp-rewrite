@@ -65,9 +65,23 @@ type Gameplay =
 
         // generate balltype order
         let ballTypes =
-            [ yield! List.replicate 7 BallType.Red
-              yield! List.replicate 7 BallType.Yellow
-              yield BallType.Black ]
+            [ yield BallType.Red
+              yield BallType.Red
+              yield BallType.Yellow
+              yield BallType.Yellow
+              yield BallType.Black
+              yield BallType.Red
+              yield BallType.Red
+              yield BallType.Yellow
+              yield BallType.Red
+              yield BallType.Yellow
+              yield BallType.Yellow
+              yield BallType.Red
+              yield BallType.Yellow
+              yield BallType.Red
+              yield BallType.Yellow]
+              
+// yield! List.replicate 3 BallType.Red
 
         // use position generator
         let trianglePositions = generateTrianglePositions ()

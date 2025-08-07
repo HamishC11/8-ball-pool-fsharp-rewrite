@@ -64,7 +64,7 @@ type MyGameDispatcher () =
         | ShowTitle -> just Title
         | ShowCredits -> just Credits
         | ShowGameplay -> just Gameplay
-        | ShowPause -> just Pause
+       // | ShowPause -> just Pause
 
     // here we handle the above commands
     override this.Command (_, command, _, world) =
@@ -77,4 +77,5 @@ type MyGameDispatcher () =
          Content.screenWithGroupFromFile Simulants.Title.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/Menu.nugroup" [] []
          Content.screenWithGroupFromFile Simulants.Credits.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/Credits.nugroup" [] []
          Content.screen<GameplayDispatcher> Simulants.Gameplay.Name (Dissolve (Constants.Dissolve.Default, None)) [] []
-         Content.screenWithGroupFromFile Simulants.Pause.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/PauseMenu.nugroup" [] []]
+       //  Content.screenWithGroupFromFile Simulants.Pause.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/PauseMenu.nugroup" [] []
+        ]
