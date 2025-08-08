@@ -15,17 +15,16 @@ module Constants =
     let MinPower = 1.0f
 
     // triangle maker
-    let BallSpacing = 30.0f
-    let BaseX = 100.0f
+    let BallSpacing = 15.0f
+    let BaseX = 120.0f
     let BaseY = 1.0f
-    let RowOffset = -15.0f
 
     //generate starting triangle
     let generateTrianglePositions () =
         [ for row in 0 .. 4 do
             for col in 0 .. row do
-                let x = float32 row * BallSpacing + BaseX
-                let y = float32 col * BallSpacing + BaseY + float32 row * RowOffset
+                let x = float32 row * (BallSpacing - 1.0f) + BaseX
+                let y = float32 col * BallSpacing + BaseY + float32 row * -(BallSpacing / 2.0f)
                 yield v3 x y 0.0f ]
 
     // used for pocket collision
