@@ -27,6 +27,10 @@ module Constants =
                 let y = float32 col * BallSpacing + BaseY + float32 row * -(BallSpacing / 2.0f)
                 yield v3 x y 0.0f ]
 
+
+    let cueBallStartingPos = v3 144.5f 0.0f 0.0f
+
+
     // used for pocket collision
     let HoleRadius = 15.0f
     // used for ball collision

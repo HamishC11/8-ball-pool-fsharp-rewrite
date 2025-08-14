@@ -30,17 +30,29 @@ type Ball =
      Size : Vector3
      Velocity : Vector3
      Type : BallType
-     IsMoving : Boolean}
+     IsMoving : Boolean
+     Pocketed : Boolean}
 
     static member make (position: Vector3) (balltype: BallType) = 
         { Position = position
           Size = v3 20.0f 20.0f 0.0f
           Velocity = v3 0.0f 0.0f 0.0f
           Type = balltype
-          IsMoving =  false }
+          IsMoving = false
+          Pocketed = false}
 
     member this.positionNext =
         this.Position + this.Velocity
+
+type Player =
+    { Name : string
+      Score : int
+      firstHit : BallType}
+
+    static member initial name =
+        { Name = name
+          Score = 0 
+          firstHit = BallType.Cue}
 
 
         
@@ -51,18 +63,25 @@ type Gameplay =
     { GameplayTime : int64
       GameplayState : GameplayState 
       Cue : Cue
-      Balls : Map<String, Ball>}
+      Balls : Map<String, Ball>
+      Turn : string
+      Player1 : Player
+      Player2 : Player
+      lastBallPocketed : Ball}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
           GameplayState = Quit 
           Cue = Cue.initial 
-          Balls = Map.empty}
+          Balls = Map.empty
+          Player1 = Player.initial "Player 1"
+          Player2 = Player.initial "Player 2"
+          Turn = "P1"
+          lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Cue}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
-
         // generate balltype order
         let ballTypes =
             [yield BallType.Red
@@ -80,24 +99,6 @@ type Gameplay =
              yield BallType.Yellow
              yield BallType.Red
              yield BallType.Yellow]
-              
-// yield! List.replicate 3 BallType.Red
-
-// [ yield BallType.Red
- //             yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Yellow
-//              yield BallType.Black
-//              yield BallType.Red
-//              yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Yellow
-//              yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Red
-//              yield BallType.Yellow]
 
         // use position generator
         let trianglePositions = generateTrianglePositions ()
@@ -110,7 +111,7 @@ type Gameplay =
                 (id, Ball.make pos ballType)
             ) trianglePositions
  
-        let cueBall = ("Cue Ball", Ball.make(v3 -144.5f 0.0f 0.0f) BallType.Cue)
+        let cueBall = ("Cue Ball", Ball.make cueBallStartingPos BallType.Cue)
 
         let balls =
             cueBall :: triangleBalls
@@ -123,6 +124,9 @@ type Gameplay =
     static member update gameplay world = 
         match gameplay.GameplayState with
         | Playing ->
+            // for turn switches
+            let wasMoving = gameplay.Balls.["Cue Ball"].IsMoving
+
             //update cue
             let gameplay =
                 let cue = gameplay.Cue
@@ -293,23 +297,67 @@ type Gameplay =
                     ballMap <- ballMap |> Map.add ballIdA updatedBallA
 
                 { gameplay with Balls = ballMap }
-                            
 
             // pocketing
             let gameplay =
+                // handle score
+                let mutable score1 = gameplay.Player1.Score
+                let mutable score2 = gameplay.Player2.Score
+                let mutable turn = gameplay.Turn
+
+                let updatedBalls =
+                    gameplay.Balls
+                    |> Map.map (fun _ ball ->
+                        if IsInsideHole(ball.Position) then
+                            match gameplay.Turn, ball.Type with
+                            | "P1", BallType.Red -> score1 <- score1 + 1
+                            | "P1", BallType.Yellow -> score1 <- score1 - 1
+                            | "P2", BallType.Red -> score2 <- score2 - 1
+                            | "P2", BallType.Yellow -> score2 <- score2 + 1
+                            | "P1", BallType.Cue -> turn <- "BallInHandP2"
+                            | "P2", BallType.Cue -> turn <- "BallInHandP1"
+                            | "P1", BallType.Black -> turn <- "P2Win"
+                            | "P2", BallType.Black -> turn <- "P1Win"
+                            | _ -> ()       
+                            if ball.Type <> BallType.Cue then
+                                { ball with Pocketed = true }
+                            else 
+                            { ball with 
+                                Position = cueBallStartingPos
+                                Velocity = v3 0.0f 0.0f 0.0f}
+                        else
+                            ball
+                    )
+
+                { gameplay with 
+                    Player1.Score = score1
+                    Player2.Score = score2
+                    Balls = updatedBalls 
+                    Turn = turn }
+
+            // remove pocketed balls and update
+            let gameplay =
+                let lastPocketed =
+                    // search for pocketed balls
+                    match Seq.tryFind (fun (_, ball) -> ball.Pocketed) (Map.toSeq gameplay.Balls) with
+                        | Some (_, ball) -> ball
+                        // handle if nothing is found
+                        | None -> Ball.make(v3 1000.0f 1000.0f 0.0f) BallType.Cue
+
+                let remainingBalls =
+                    Map.filter (fun _ ball -> not ball.Pocketed) gameplay.Balls
+
+                // update lastballpocketed
+                { gameplay with Balls = remainingBalls; lastBallPocketed = lastPocketed}
+
+            //updates turns
+            let gameplay =
                 let cueBall = gameplay.Balls.["Cue Ball"]
+                let mutable turn = gameplay.Turn
+                if wasMoving && not cueBall.IsMoving then
+                    if turn = "P1" then turn <- "P2" else turn <- "P1"
+                { gameplay with Turn = turn }
 
-                let cueBall =
-                    if IsInsideHole(cueBall.Position) then
-                        {cueBall with 
-                            Position = (v3 -144.0f 0.0f 0.0f)
-                            Velocity = (v3 0.0f 0.0f 0.0f) }
-                    else
-                        cueBall
-
-                //update Ball list
-                let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
-                { gameplay with Balls = updatedBalls }
             //end
             gameplay
 
@@ -397,6 +445,7 @@ type GameplayDispatcher () =
                     [Entity.Position == v3 0.0f 0.0f 0.0f
                      Entity.Size == v3 640f 360f 0.0f
                      Entity.StaticImage == Assets.Gameplay.poolTable1]
+                 // load all balls
                  for (ballId, ball) in Map.toList gameplay.Balls do
                     Content.staticSprite ballId
                         [Entity.Position := ball.Position
@@ -409,13 +458,24 @@ type GameplayDispatcher () =
                          elif ball.Type = BallType.Black then
                             Entity.StaticImage == Assets.Gameplay.blackBallImage
                          elif ball.Type = BallType.Cue then
-                            Entity.StaticImage == Assets.Gameplay.cueBallImage]]
+                            Entity.StaticImage == Assets.Gameplay.cueBallImage]
+                 // turn display
+                 Content.text "Turn"
+                    [Entity.Text := "Player: " + gameplay.Turn
+                     Entity.Position == v3 0.0f 0.0f 0.0f
+                     Entity.Elevation == 0.5f]]
 
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []
-
-            [// quit
+            [//score display
+             Content.text "ScoreP1"
+                [Entity.Text := "Player 1: " + gameplay.Player1.Score.ToString()
+                 Entity.Position == v3 -144f 168.0f 0.0f]
+             Content.text "ScoreP2"
+                [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
+                 Entity.Position == v3 130f 168.0f 0.0f]
+            // quit
              Content.button Simulants.GameplayQuit.Name
                 [Entity.Position == v3 232.0f -200.0f 0.0f
                  Entity.Text == "Quit"
