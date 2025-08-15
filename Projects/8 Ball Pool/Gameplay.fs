@@ -65,39 +65,19 @@ type Gameplay =
 
         // generate balltype order
         let ballTypes =
-            [yield BallType.Red
-             yield BallType.Red
-             yield BallType.Yellow
-             yield BallType.Yellow
+            [yield! List.replicate 2 BallType.Red
+             yield! List.replicate 2 BallType.Yellow
              yield BallType.Black
-             yield BallType.Red
-             yield BallType.Red
+             yield! List.replicate 2 BallType.Red
              yield BallType.Yellow
              yield BallType.Red
-             yield BallType.Yellow
-             yield BallType.Yellow
+             yield! List.replicate 2 BallType.Yellow
              yield BallType.Red
              yield BallType.Yellow
              yield BallType.Red
              yield BallType.Yellow]
               
-// yield! List.replicate 3 BallType.Red
 
-// [ yield BallType.Red
- //             yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Yellow
-//              yield BallType.Black
-//              yield BallType.Red
-//              yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Yellow
-//              yield BallType.Red
-//              yield BallType.Yellow
-//              yield BallType.Red
-//              yield BallType.Yellow]
 
         // use position generator
         let trianglePositions = generateTrianglePositions ()
@@ -415,8 +395,8 @@ type GameplayDispatcher () =
          // the gui group
          Content.group Simulants.GameplayGui.Name []
 
-            [// quit
-             Content.button Simulants.GameplayQuit.Name
-                [Entity.Position == v3 232.0f -200.0f 0.0f
-                 Entity.Text == "Quit"
+            [// pause
+             Content.button "Pause"
+                [Entity.Position == v3 0.0f 0.0f 0.0f
+                 Entity.Text == "Pause"
                  Entity.ClickEvent => StartQuitting]]]

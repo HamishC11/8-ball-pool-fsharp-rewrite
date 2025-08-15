@@ -8,7 +8,7 @@ module Constants =
     [<Literal>]
 
     // friction factor for the table
-    let FrictionFactor = 0.98f
+    let FrictionFactor = 1.001f
 
     // Cue Power limits
     let MaxPower = 50.0f
