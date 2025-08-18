@@ -8,11 +8,12 @@ module Constants =
     [<Literal>]
 
     // friction factor for the table
-    let FrictionFactor = 1.001f
+    let FrictionFactor = 0.98f
 
     // Cue Power limits
-    let MaxPower = 50.0f
-    let MinPower = 1.0f
+    let MaxPower = 40.0f
+    let MinPower = 0.0f
+    let PowerIncrement = 0.75f
 
     // triangle maker
     let BallSpacing = 15.0f
@@ -28,7 +29,7 @@ module Constants =
                 yield v3 x y 0.0f ]
 
 
-    let cueBallStartingPos = v3 144.5f 0.0f 0.0f
+    let cueBallStartingPos = v3 -144.5f 0.0f 0.0f
 
 
     // used for pocket collision

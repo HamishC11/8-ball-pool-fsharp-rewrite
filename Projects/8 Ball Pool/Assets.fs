@@ -17,7 +17,8 @@ module Assets =
 
         let backButtonImage = asset<Image> PackageName "back_button"
         let backButtonHoverImage = asset<Image> PackageName "back_button_hover"
-        let continuebuttonImage = asset<Image> PackageName "continue_button"
+        let continuebuttonImage2 = asset<Image> PackageName "continue_button"
+
 
 
     // these are assets from the Gui package. Also no assets here yet.
@@ -32,3 +33,5 @@ module Assets =
         let redBallImage = asset<Image> PackageName "spr_redBall2"
         let yellowBallImage = asset<Image> PackageName "spr_yellowBall2"
         let blackBallImage = asset<Image> PackageName "spr_blackBall2"
+        let pauseImage = asset<Image> PackageName "main_menu_background"
+        let continuebuttonImage = asset<Image> PackageName "continue_button"

@@ -9,6 +9,7 @@ open MyGame.Constants
 // this represents the state of gameplay simulation.
 type GameplayState =
     | Playing
+    | Paused
     | Quit
 
 type Cue =
@@ -67,18 +68,20 @@ type Gameplay =
       Turn : string
       Player1 : Player
       Player2 : Player
-      lastBallPocketed : Ball}
+      lastBallPocketed : Ball
+      ResumeTimer : int64}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
           GameplayState = Quit 
-          Cue = Cue.initial 
+          Cue = Cue.initial
           Balls = Map.empty
           Player1 = Player.initial "Player 1"
           Player2 = Player.initial "Player 2"
           Turn = "P1"
-          lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Cue}
+          lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Cue
+          ResumeTimer = 0L}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
@@ -119,9 +122,10 @@ type Gameplay =
 
     static member update gameplay world = 
         match gameplay.GameplayState with
-        | Playing ->
+        | Playing | Paused ->
             // for turn switches
             let wasMoving = gameplay.Balls.["Cue Ball"].IsMoving
+
 
             //update cue
             let gameplay =
@@ -129,6 +133,17 @@ type Gameplay =
                 let cueBall = gameplay.Balls.["Cue Ball"]
                 let mousePos = World.getMousePosition2dScreen world
                 let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
+
+                // Handle pause toggle
+                let gameplay =
+                    if World.isKeyboardKeyDown KeyboardKey.Q world then
+                        if gameplay.GameplayState = Playing then
+                            { gameplay with GameplayState = Paused }
+                        else
+                            gameplay
+                    else
+                        gameplay
+
 
                 //direction of mouse relative to cueball
                 let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
@@ -142,15 +157,15 @@ type Gameplay =
                 let rotationQuat = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, angleRad)
 
                 let cue =
-                    // handle all cue movements when no balls are moving
-                    if not cueBall.IsMoving then
+                    // handle all cue movements when no balls are moving and game is not paused
+                    if not cueBall.IsMoving && gameplay.GameplayState = Playing then
                         let cue = 
                             // min max func
                             let clampedPower power = min MaxPower (max MinPower power)
                             if World.isKeyboardKeyDown KeyboardKey.S world then
-                                { cue with Power = clampedPower (cue.Power - 1.0f) }
+                                { cue with Power = clampedPower (cue.Power - PowerIncrement) }
                             elif World.isKeyboardKeyDown KeyboardKey.W world then
-                                { cue with Power = clampedPower (cue.Power + 1.0f) }
+                                { cue with Power = clampedPower (cue.Power + PowerIncrement) }
                             else cue
                         { cue with 
                             Position = v3 cuePos2D.X cuePos2D.Y cueBall.Position.Z 
@@ -175,7 +190,7 @@ type Gameplay =
                 let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
                 let cueBall =
                     if cueBall.Velocity.X < 0.1f && cueBall.Velocity.X > -0.1f then
-                        if World.isMouseButtonClicked MouseButton.MouseLeft world then
+                        if World.isMouseButtonClicked MouseButton.MouseLeft world && gameplay.GameplayState = Playing then
                             // Launch in cue direction
                             { cueBall with 
                                 Velocity = (v3 direction2D.X direction2D.Y 0.0f) * gameplay.Cue.Power
@@ -354,6 +369,18 @@ type Gameplay =
                     if turn = "P1" then turn <- "P2" else turn <- "P1"
                 { gameplay with Turn = turn }
 
+            // Handle resume timer
+            let gameplay =
+                if gameplay.ResumeTimer > 0L then
+                    let newTimer = gameplay.ResumeTimer - 1L
+                    if newTimer = 0L then
+                        // Timer finished, set state to Playing directly
+                        { gameplay with ResumeTimer = newTimer; GameplayState = Playing }
+                    else
+                        { gameplay with ResumeTimer = newTimer }
+                else
+                    gameplay
+
             //end
             gameplay
 
@@ -365,6 +392,7 @@ type GameplayMessage =
     | FinishQuitting
     | Update
     | TimeUpdate
+    | Continue
     interface Message
 
 // this is our gameplay MMCC command type.
@@ -419,6 +447,11 @@ type GameplayDispatcher () =
             let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + gameDelta.Updates }
             just gameplay
 
+        | Continue ->
+            // Start the resume timer (1 second = 60 frames at 60 FPS)
+            let gameplay = { gameplay with ResumeTimer = 60L }
+            just gameplay
+
     // here we handle the above commands
     override this.Command (_, command, screen, world) =
         match command with
@@ -428,51 +461,93 @@ type GameplayDispatcher () =
     // here we describe the content of the game including the hud, the scene, and the player
     override this.Content (gameplay, _) =
 
-        [// the scene group while playing
-         if gameplay.GameplayState = Playing then
-            Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Multiplayer.nugroup" []
-                [Content.staticSprite "Cue"
-                    [Entity.Position := gameplay.Cue.Position
-                     Entity.Size == gameplay.Cue.Size
-                     Entity.StaticImage == Assets.Gameplay.cueImage
-                     Entity.Elevation == 2.0f
-                     Entity.Rotation := gameplay.Cue.Rotation]
-                 Content.staticSprite "PoolTable"
-                    [Entity.Position == v3 0.0f 0.0f 0.0f
-                     Entity.Size == v3 640f 360f 0.0f
-                     Entity.StaticImage == Assets.Gameplay.poolTable1]
-                 // load all balls
-                 for (ballId, ball) in Map.toList gameplay.Balls do
-                    Content.staticSprite ballId
-                        [Entity.Position := ball.Position
-                         Entity.Size == ball.Size
-                         Entity.Elevation == 1.0f
-                         if ball.Type = BallType.Red then
-                            Entity.StaticImage == Assets.Gameplay.redBallImage
-                         elif ball.Type = BallType.Yellow then
-                            Entity.StaticImage == Assets.Gameplay.yellowBallImage
-                         elif ball.Type = BallType.Black then
-                            Entity.StaticImage == Assets.Gameplay.blackBallImage
-                         elif ball.Type = BallType.Cue then
-                            Entity.StaticImage == Assets.Gameplay.cueBallImage]
-                 // turn display
-                 Content.text "Turn"
-                    [Entity.Text := "Player: " + gameplay.Turn
-                     Entity.Position == v3 0.0f 0.0f 0.0f
-                     Entity.Elevation == 0.5f]]
-
+        [// the scene group while playing or paused
+         if gameplay.GameplayState = Playing || gameplay.GameplayState = Paused then
+             Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Multiplayer.nugroup" []
+                 [Content.staticSprite "Cue"
+                     [Entity.Position := gameplay.Cue.Position
+                      Entity.Size == gameplay.Cue.Size
+                      Entity.StaticImage == Assets.Gameplay.cueImage
+                      Entity.Elevation == 2.0f
+                      Entity.Rotation := gameplay.Cue.Rotation]
+                  Content.staticSprite "PoolTable"
+                     [Entity.Position == v3 0.0f 0.0f 0.0f
+                      Entity.Size == v3 640f 360f 0.0f
+                      Entity.StaticImage == Assets.Gameplay.poolTable1]
+                  // load all balls
+                  for (ballId, ball) in Map.toList gameplay.Balls do
+                     Content.staticSprite ballId
+                         [Entity.Position := ball.Position
+                          Entity.Size == ball.Size
+                          Entity.Elevation == 1.0f
+                          if ball.Type = BallType.Red then
+                             Entity.StaticImage == Assets.Gameplay.redBallImage
+                          elif ball.Type = BallType.Yellow then
+                             Entity.StaticImage == Assets.Gameplay.yellowBallImage
+                          elif ball.Type = BallType.Black then
+                             Entity.StaticImage == Assets.Gameplay.blackBallImage
+                          elif ball.Type = BallType.Cue then
+                             Entity.StaticImage == Assets.Gameplay.cueBallImage]
+                  // turn display
+                  Content.text "Turn"
+                     [Entity.Text := "Player: " + gameplay.Turn
+                      Entity.Position == v3 0.0f 0.0f 0.0f
+                      Entity.Elevation == 0.5f]
+                  
+                  // pause overlay when paused
+                  if gameplay.GameplayState = Paused then
+                     Content.staticSprite "Pause"
+                        [Entity.Position == v3 0.0f 0.0f 0.0f
+                         Entity.Size == v3 640f 360f 0.0f
+                         Entity.StaticImage == Assets.Gameplay.pauseImage
+                         Entity.Elevation == 4.0f]
+                     
+                     // pause menu content
+                     Content.text "PauseTitle"
+                        [Entity.Text == "Classic 8-Ball"
+                         Entity.Position == v3 0.0f 100.0f 0.0f
+                         Entity.Elevation == 5.0f
+                         Entity.Font == Assets.Default.Font]
+                     
+                     // Continue button
+                     Content.button "ContinueButton"
+                        [Entity.Position == v3 0.0f 0.0f 0.0f
+                         Entity.StaticImage == Assets.Gameplay.continuebuttonImage
+                         Entity.Elevation == 5.0f
+                         Entity.ClickEvent => Continue]
+                     
+                     // Singleplayer button
+                     Content.button "SingleplayerButton"
+                        [Entity.Position == v3 0.0f -50.0f 0.0f
+                         Entity.Text == "Singleplayer"
+                         Entity.Elevation == 5.0f
+                         Entity.ClickEvent => StartPlaying]
+                     
+                     // Multiplayer button
+                     Content.button "MultiplayerButton"
+                        [Entity.Position == v3 0.0f -100.0f 0.0f
+                         Entity.Text == "Multiplayer"
+                         Entity.Elevation == 5.0f
+                         Entity.ClickEvent => StartPlaying]
+                     
+                     // Exit button
+                     Content.button "ExitButton"
+                        [Entity.Position == v3 0.0f -150.0f 0.0f
+                         Entity.Text == "Exit"
+                         Entity.Elevation == 5.0f
+                         Entity.ClickEvent => StartQuitting]]
 
          // the gui group
          Content.group Simulants.GameplayGui.Name []
-            [//score display
-             Content.text "ScoreP1"
-                [Entity.Text := "Player 1: " + gameplay.Player1.Score.ToString()
-                 Entity.Position == v3 -144f 168.0f 0.0f]
-             Content.text "ScoreP2"
-                [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
-                 Entity.Position == v3 130f 168.0f 0.0f]
-            // quit
-             Content.button Simulants.GameplayQuit.Name
-                [Entity.Position == v3 232.0f -200.0f 0.0f
-                 Entity.Text == "Quit"
-                 Entity.ClickEvent => StartQuitting]]]
+             [//score display
+              Content.text "ScoreP1"
+                 [Entity.Text := "Player 1: " + gameplay.Player1.Score.ToString()
+                  Entity.Position == v3 -144f 168.0f 0.0f]
+              Content.text "ScoreP2"
+                 [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
+                  Entity.Position == v3 130f 168.0f 0.0f]
+              // quit
+              Content.button Simulants.GameplayQuit.Name
+                 [Entity.Position == v3 232.0f -200.0f 0.0f
+                  Entity.Text == "Quit"
+                  Entity.ClickEvent => StartQuitting]]]

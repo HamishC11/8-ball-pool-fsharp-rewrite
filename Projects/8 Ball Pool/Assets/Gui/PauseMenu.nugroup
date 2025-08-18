@@ -1,0 +1,11 @@
+[group]
+
+    [button "PauseContinue"
+        Position = 0.0f, 50.0f, 0.0f
+        Text = "Continue"
+        ClickEvent => ShowGameplay]
+
+    [button "PauseExit"
+        Position = 0.0f, -50.0f, 0.0f
+        Text = "Exit"
+        ClickEvent => Exit]
