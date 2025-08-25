@@ -33,7 +33,7 @@ module Constants =
 
 
     // used for pocket collision
-    let HoleRadius = 15.0f
+    let HoleRadius = 50.0f
     // used for ball collision
     let BallRadius = 14.0f
     // Hole centres

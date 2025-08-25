@@ -24,7 +24,7 @@ type Cue =
           Rotation = Quaternion(0.0f, 0.0f, 0.0f, 0.0f)
           Power = 1.0f}
 
-type BallType = Cue | Red | Yellow | Black
+type BallType = Cue | Red | Yellow | Black | Null
 
 type Ball =
     {Position : Vector3
@@ -80,7 +80,7 @@ type Gameplay =
           Player1 = Player.initial "Player 1"
           Player2 = Player.initial "Player 2"
           Turn = "P1"
-          lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Cue
+          lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null
           ResumeTimer = 0L}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
@@ -283,91 +283,112 @@ type Gameplay =
                 let balls = Map.toList gameplay.Balls
                 let totalBalls = List.length balls
 
-                let mutable ballMap = Map.ofList balls
+                //outer rec function to process every balls interaction with another ball
+                let rec processBalls i ballMap =
+                    match i with
+                    | index when index >= totalBalls -> ballMap // end once gone through all balls
+                    | _ ->  
+                        let (ballIdA, _) = List.item i balls
+                        let ballA = Map.find ballIdA ballMap
 
+                        // inner rec function to handle collisions between remaining balls
+                        let rec processCollisions k updatedA updatedMap =
+                            match k with
+                            | index when index >= totalBalls -> updatedA, updatedMap
+                            | _ ->
+                                let (ballIdB, _) = List.item k balls
+                                let ballB = Map.find ballIdB updatedMap
 
-                // iterate over every ball in list
-                for i in 0 .. totalBalls - 1 do
-                    //get current ball
-                    let (ballIdA, _ballAOriginal) = List.item i balls
-                    let ballA = Map.find ballIdA ballMap
-                    let mutable updatedBallA = ballA
+                                let (newA, newB) = handleCollision updatedA ballB
 
-                    // iterate over all other balls
-                    for k in i + 1 .. totalBalls - 1 do
-                        let (ballIdB, _) = List.item k balls
-                        let ballB = Map.find ballIdB ballMap
+                                let updatedMap = updatedMap |> Map.add ballIdB newB
+                                processCollisions (k + 1) newA updatedMap
 
-                        let (newA, newB) = handleCollision updatedBallA ballB
+                        let (finalA, updatedMap) = processCollisions (i + 1) ballA ballMap
+                        let updatedMap = updatedMap |> Map.add ballIdA finalA
 
-                        // update both in the map
-                        updatedBallA <- newA
-                        ballMap <- ballMap |> Map.add ballIdB newB
+                        processBalls (i + 1) (updatedMap |> Map.add ballIdA finalA)
 
-                    // update ballA after all interactions
-                    ballMap <- ballMap |> Map.add ballIdA updatedBallA
+                // call func on balls
+                let updatedBalls = processBalls 0 gameplay.Balls
+                { gameplay with Balls = updatedBalls }
 
-                { gameplay with Balls = ballMap }
-
-            // pocketing
+            //handle pocketing and turns
             let gameplay =
-                // handle score
-                let mutable score1 = gameplay.Player1.Score
-                let mutable score2 = gameplay.Player2.Score
-                let mutable turn = gameplay.Turn
+                // accumulator for fold
+                let initAcc = 
+                    ( Map.empty<string, Ball>,                     // updated balls
+                      Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null, // last ball pocketed in this frame
+                      gameplay.Player1.Score,                     // p1 score
+                      gameplay.Player2.Score,                     // p2 score
+                      gameplay.Turn )                             // turn
 
-                let updatedBalls =
+                // fold over all balls
+                let updatedBalls, lastPocketedThisFrame, score1, score2, turn =
                     gameplay.Balls
-                    |> Map.map (fun _ ball ->
-                        if IsInsideHole(ball.Position) then
-                            match gameplay.Turn, ball.Type with
-                            | "P1", BallType.Red -> score1 <- score1 + 1
-                            | "P1", BallType.Yellow -> score1 <- score1 - 1
-                            | "P2", BallType.Red -> score2 <- score2 - 1
-                            | "P2", BallType.Yellow -> score2 <- score2 + 1
-                            | "P1", BallType.Cue -> turn <- "BallInHandP2"
-                            | "P2", BallType.Cue -> turn <- "BallInHandP1"
-                            | "P1", BallType.Black -> turn <- "P2Win"
-                            | "P2", BallType.Black -> turn <- "P1Win"
-                            | _ -> ()       
-                            if ball.Type <> BallType.Cue then
-                                { ball with Pocketed = true }
-                            else 
-                            { ball with 
-                                Position = cueBallStartingPos
-                                Velocity = v3 0.0f 0.0f 0.0f}
+                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn) key ball ->
+                        if IsInsideHole ball.Position then
+                            let newP1, newP2, newTurn =
+                                // handle score/turn updates for pocketed balls
+                                match currentTurn, ball.Type with
+                                | "P1", BallType.Red -> p1 + 1, p2, currentTurn
+                                | "P1", BallType.Yellow -> p1 - 1, p2, currentTurn
+                                | "P1", BallType.Cue -> p1, p2, "BallInHandP2"
+                                | "P1", BallType.Black -> p1, p2, "P2Win"
+                                | "P2", BallType.Cue -> p1, p2, "BallInHandP1"
+                                | "P2", BallType.Red -> p1, p2 - 1, currentTurn
+                                | "P2", BallType.Yellow -> p1, p2 + 1, currentTurn
+                                | "P2", BallType.Black -> p1, p2, "P1Win"
+                                | _ -> p1, p2, currentTurn
+
+                            // pocket all coloured balls and reset cueball
+                            let updatedBall =
+                                if ball.Type <> BallType.Cue then
+                                    { ball with Pocketed = true }
+                                else
+                                    { ball with Position = cueBallStartingPos; Velocity = v3 0.0f 0.0f 0.0f }
+
+                            // update acc (lastPocketed = updatedBall)
+                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn)
                         else
-                            ball
-                    )
+                            (Map.add key ball ballsMap, last, p1, p2, currentTurn)
+                    ) initAcc
+    
+                // check if turn ended
+                let cueBall = updatedBalls.["Cue Ball"]
+                let lastBallPocketed, newTurn =
+                    if wasMoving && not cueBall.IsMoving then
+                        // update lastball if a new one was pocketed this frame
+                        let lastBall =
+                            if lastPocketedThisFrame.Type = BallType.Null then
+                                gameplay.lastBallPocketed
+                            else
+                                lastPocketedThisFrame
 
-                { gameplay with 
-                    Player1.Score = score1
-                    Player2.Score = score2
-                    Balls = updatedBalls 
-                    Turn = turn }
+                        let turn =
+                            if lastPocketedThisFrame.Type = BallType.Null then
+                                // switch turns if no ball pocketed
+                                if gameplay.Turn = "P1" then "P2" else "P1"
+                            else
+                                // keep turn if a ball was pocketed
+                                gameplay.Turn
 
-            // remove pocketed balls and update
-            let gameplay =
-                let lastPocketed =
-                    // search for pocketed balls
-                    match Seq.tryFind (fun (_, ball) -> ball.Pocketed) (Map.toSeq gameplay.Balls) with
-                        | Some (_, ball) -> ball
-                        // handle if nothing is found
-                        | None -> Ball.make(v3 1000.0f 1000.0f 0.0f) BallType.Cue
+                        lastBall, turn
+                    else
+                        gameplay.lastBallPocketed, gameplay.Turn
 
+                // remove pocketed balls
                 let remainingBalls =
-                    Map.filter (fun _ ball -> not ball.Pocketed) gameplay.Balls
+                    updatedBalls
+                    |> Map.filter (fun _ ball -> not ball.Pocketed)
 
-                // update lastballpocketed
-                { gameplay with Balls = remainingBalls; lastBallPocketed = lastPocketed}
-
-            //updates turns
-            let gameplay =
-                let cueBall = gameplay.Balls.["Cue Ball"]
-                let mutable turn = gameplay.Turn
-                if wasMoving && not cueBall.IsMoving then
-                    if turn = "P1" then turn <- "P2" else turn <- "P1"
-                { gameplay with Turn = turn }
+                // update gameplay
+                { gameplay with
+                    Balls = remainingBalls
+                    Player1 = { gameplay.Player1 with Score = score1 }
+                    Player2 = { gameplay.Player2 with Score = score2 }
+                    Turn = newTurn
+                    lastBallPocketed = lastBallPocketed }
 
             // Handle resume timer
             let gameplay =
