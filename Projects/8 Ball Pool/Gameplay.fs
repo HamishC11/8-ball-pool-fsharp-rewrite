@@ -66,8 +66,11 @@ type Gameplay =
       Cue : Cue
       Balls : Map<String, Ball>
       Turn : string
+      TurnPlayed : bool
+      Aiming : bool
       Player1 : Player
       Player2 : Player
+      BallPocketed : bool
       lastBallPocketed : Ball
       ResumeTimer : int64}
 
@@ -80,6 +83,9 @@ type Gameplay =
           Player1 = Player.initial "Player 1"
           Player2 = Player.initial "Player 2"
           Turn = "P1"
+          TurnPlayed = true
+          Aiming = true
+          BallPocketed = false
           lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null
           ResumeTimer = 0L}
 
@@ -123,9 +129,52 @@ type Gameplay =
     static member update gameplay world = 
         match gameplay.GameplayState with
         | Playing | Paused ->
-            // for turn switches
-            let wasMoving = gameplay.Balls.["Cue Ball"].IsMoving
+            // handle turnPlayed
+            let gameplay =
+                let balls = gameplay.Balls
 
+                let velocityLimit = 0.01f
+
+                // update IsMoving for all balls based on limit
+                let updatedBalls =
+                    balls
+                    |> Map.map (fun _ ball ->
+                        let isMoving =
+                            abs ball.Velocity.X >= velocityLimit ||
+                            abs ball.Velocity.Y >= velocityLimit ||
+                            abs ball.Velocity.Z >= velocityLimit
+                        { ball with IsMoving = isMoving }
+                    )
+
+                let ballsNotMoving =
+                    gameplay.Balls
+                    |> Map.forall (fun _ ball -> not ball.IsMoving)
+
+                let aiming =
+                    if ballsNotMoving then
+                        true
+                    else
+                        false 
+               
+
+                // update gameplay
+                { gameplay with 
+                    Balls = updatedBalls
+                    Aiming = aiming}
+
+
+            //turn determination based off ball pocket
+            let gameplay =
+                let newTurn =
+                    if gameplay.TurnPlayed && not gameplay.BallPocketed then
+                        // switch turn
+                        let nextTurn = if gameplay.Turn = "P1" then "P2" else "P1"
+                        nextTurn  // reset TurnPlayed after switching
+                    else
+                        gameplay.Turn
+
+                {gameplay with
+                    Turn = newTurn}
 
             //update cue
             let gameplay =
@@ -133,6 +182,7 @@ type Gameplay =
                 let cueBall = gameplay.Balls.["Cue Ball"]
                 let mousePos = World.getMousePosition2dScreen world
                 let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
+                let aiming = gameplay.Aiming
 
                 // Handle pause toggle
                 let gameplay =
@@ -153,12 +203,12 @@ type Gameplay =
 
                 //get angle of direction vector
                 let angleRad = atan2 direction2D.Y direction2D.X
-                //convert to qauternion for Nu rotation
+                //convert to quaternion for Nu rotation
                 let rotationQuat = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, angleRad)
 
                 let cue =
                     // handle all cue movements when no balls are moving and game is not paused
-                    if not cueBall.IsMoving && gameplay.GameplayState = Playing then
+                    if aiming && gameplay.GameplayState = Playing then
                         let cue = 
                             // min max func
                             let clampedPower power = min MaxPower (max MinPower power)
@@ -180,16 +230,17 @@ type Gameplay =
 
             //update cueball movement
             let gameplay =
-                // update pos
                 let cueBall = gameplay.Balls.["Cue Ball"]
+                let aiming = gameplay.Aiming
 
-                // Mover
+                // mover
                 let mousePos = World.getMousePosition2dScreen world
                 let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
                 //direction of mouse relative to cueball
                 let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
                 let cueBall =
-                    if cueBall.Velocity.X < 0.1f && cueBall.Velocity.X > -0.1f then
+                    // only shoot if turn is complete
+                    if aiming then
                         if World.isMouseButtonClicked MouseButton.MouseLeft world && gameplay.GameplayState = Playing then
                             // Launch in cue direction
                             { cueBall with 
@@ -203,7 +254,8 @@ type Gameplay =
 
                 //update Ball list
                 let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
-                { gameplay with Balls = updatedBalls}
+                { gameplay with 
+                    Balls = updatedBalls}
 
             //ball movement
             let gameplay =
@@ -315,18 +367,20 @@ type Gameplay =
 
             //handle pocketing and turns
             let gameplay =
+                let turnPlayed = gameplay.TurnPlayed
                 // accumulator for fold
                 let initAcc = 
                     ( Map.empty<string, Ball>,                     // updated balls
                       Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null, // last ball pocketed in this frame
                       gameplay.Player1.Score,                     // p1 score
                       gameplay.Player2.Score,                     // p2 score
-                      gameplay.Turn )                             // turn
+                      gameplay.Turn,                              // turn
+                      false)                                     // pocketed
 
                 // fold over all balls
-                let updatedBalls, lastPocketedThisFrame, score1, score2, turn =
+                let updatedBalls, lastPocketedThisFrame, score1, score2, turn, pocketed =
                     gameplay.Balls
-                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn) key ball ->
+                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn, pocketed) key ball ->
                         if IsInsideHole ball.Position then
                             let newP1, newP2, newTurn =
                                 // handle score/turn updates for pocketed balls
@@ -349,46 +403,24 @@ type Gameplay =
                                     { ball with Position = cueBallStartingPos; Velocity = v3 0.0f 0.0f 0.0f }
 
                             // update acc (lastPocketed = updatedBall)
-                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn)
+                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn, true)
                         else
-                            (Map.add key ball ballsMap, last, p1, p2, currentTurn)
+                            (Map.add key ball ballsMap, last, p1, p2, currentTurn, pocketed)
                     ) initAcc
     
-                // check if turn ended
-                let cueBall = updatedBalls.["Cue Ball"]
-                let lastBallPocketed, newTurn =
-                    if wasMoving && not cueBall.IsMoving then
-                        // update lastball if a new one was pocketed this frame
-                        let lastBall =
-                            if lastPocketedThisFrame.Type = BallType.Null then
-                                gameplay.lastBallPocketed
-                            else
-                                lastPocketedThisFrame
-
-                        let turn =
-                            if lastPocketedThisFrame.Type = BallType.Null then
-                                // switch turns if no ball pocketed
-                                if gameplay.Turn = "P1" then "P2" else "P1"
-                            else
-                                // keep turn if a ball was pocketed
-                                gameplay.Turn
-
-                        lastBall, turn
-                    else
-                        gameplay.lastBallPocketed, gameplay.Turn
 
                 // remove pocketed balls
-                let remainingBalls =
-                    updatedBalls
-                    |> Map.filter (fun _ ball -> not ball.Pocketed)
+                let remainingBalls = updatedBalls |> Map.filter (fun _ ball -> not ball.Pocketed)
 
                 // update gameplay
                 { gameplay with
                     Balls = remainingBalls
                     Player1 = { gameplay.Player1 with Score = score1 }
                     Player2 = { gameplay.Player2 with Score = score2 }
-                    Turn = newTurn
-                    lastBallPocketed = lastBallPocketed }
+                    //Turn = newTurn
+                    //lastBallPocketed = lastBallPocketed
+                    //BallPocketed = newBallPocketed 
+                    }
 
             // Handle resume timer
             let gameplay =
