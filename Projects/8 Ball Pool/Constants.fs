@@ -31,9 +31,10 @@ module Constants =
 
     let cueBallStartingPos = v3 -144.5f 0.0f 0.0f
 
-
+    //ball size
+    let GlobalBallSize = v3 20.0f 20.0f 0.0f
     // used for pocket collision
-    let HoleRadius = 50.0f
+    let HoleRadius = 20.0f
     // used for ball collision
     let BallRadius = 14.0f
     // Hole centres

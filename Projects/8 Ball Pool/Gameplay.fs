@@ -36,7 +36,7 @@ type Ball =
 
     static member make (position: Vector3) (balltype: BallType) = 
         { Position = position
-          Size = v3 20.0f 20.0f 0.0f
+          Size = GlobalBallSize
           Velocity = v3 0.0f 0.0f 0.0f
           Type = balltype
           IsMoving = false
@@ -48,12 +48,14 @@ type Ball =
 type Player =
     { Name : string
       Score : int
-      firstHit : BallType}
+      FirstHit : BallType
+      Colour : BallType}
 
     static member initial name =
         { Name = name
           Score = 0 
-          firstHit = BallType.Cue}
+          FirstHit = BallType.Null
+          Colour = BallType.Null}
 
 
         
@@ -129,53 +131,7 @@ type Gameplay =
     static member update gameplay world = 
         match gameplay.GameplayState with
         | Playing | Paused ->
-            // handle turnPlayed
-            let gameplay =
-                let balls = gameplay.Balls
-
-                let velocityLimit = 0.01f
-
-                // update IsMoving for all balls based on limit
-                let updatedBalls =
-                    balls
-                    |> Map.map (fun _ ball ->
-                        let isMoving =
-                            abs ball.Velocity.X >= velocityLimit ||
-                            abs ball.Velocity.Y >= velocityLimit ||
-                            abs ball.Velocity.Z >= velocityLimit
-                        { ball with IsMoving = isMoving }
-                    )
-
-                let ballsNotMoving =
-                    gameplay.Balls
-                    |> Map.forall (fun _ ball -> not ball.IsMoving)
-
-                let aiming =
-                    if ballsNotMoving then
-                        true
-                    else
-                        false 
-               
-
-                // update gameplay
-                { gameplay with 
-                    Balls = updatedBalls
-                    Aiming = aiming}
-
-
-            //turn determination based off ball pocket
-            let gameplay =
-                let newTurn =
-                    if gameplay.TurnPlayed && not gameplay.BallPocketed then
-                        // switch turn
-                        let nextTurn = if gameplay.Turn = "P1" then "P2" else "P1"
-                        nextTurn  // reset TurnPlayed after switching
-                    else
-                        gameplay.Turn
-
-                {gameplay with
-                    Turn = newTurn}
-
+            let ballsWereMoving = gameplay.Aiming
             //update cue
             let gameplay =
                 let cue = gameplay.Cue
@@ -367,7 +323,6 @@ type Gameplay =
 
             //handle pocketing and turns
             let gameplay =
-                let turnPlayed = gameplay.TurnPlayed
                 // accumulator for fold
                 let initAcc = 
                     ( Map.empty<string, Ball>,                     // updated balls
@@ -375,25 +330,47 @@ type Gameplay =
                       gameplay.Player1.Score,                     // p1 score
                       gameplay.Player2.Score,                     // p2 score
                       gameplay.Turn,                              // turn
-                      false)                                     // pocketed
+                      gameplay.BallPocketed,                       // pocketed
+                      gameplay.Player1.Colour,                     //p1 ball colour
+                      gameplay.Player2.Colour)                     //p2 ball colour
 
                 // fold over all balls
-                let updatedBalls, lastPocketedThisFrame, score1, score2, turn, pocketed =
+                let updatedBalls, lastPocketedThisFrame, score1, score2, turn, pocketed, p1colour, p2colour =
                     gameplay.Balls
-                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn, pocketed) key ball ->
+                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn, pocketed, p1colour, p2colour) key ball ->
                         if IsInsideHole ball.Position then
+                            // set players colours if not set yet
+                            let p1Col, p2Col =
+                                if currentTurn = "P1" && gameplay.Player1.Colour = BallType.Null then
+                                    if ball.Type = BallType.Red then
+                                       ball.Type, BallType.Yellow
+                                    elif ball.Type = BallType.Yellow then
+                                       ball.Type, BallType.Red
+                                    else BallType.Null, BallType.Null
+                                elif currentTurn = "P2" && gameplay.Player2.Colour = BallType.Null then
+                                    if ball.Type = BallType.Red then
+                                       BallType.Yellow, ball.Type
+                                    elif ball.Type = BallType.Yellow then
+                                       BallType.Red, ball.Type
+                                    else BallType.Null, BallType.Null
+                                else gameplay.Player1.Colour, gameplay.Player2.Colour
                             let newP1, newP2, newTurn =
                                 // handle score/turn updates for pocketed balls
-                                match currentTurn, ball.Type with
-                                | "P1", BallType.Red -> p1 + 1, p2, currentTurn
-                                | "P1", BallType.Yellow -> p1 - 1, p2, currentTurn
-                                | "P1", BallType.Cue -> p1, p2, "BallInHandP2"
-                                | "P1", BallType.Black -> p1, p2, "P2Win"
-                                | "P2", BallType.Cue -> p1, p2, "BallInHandP1"
-                                | "P2", BallType.Red -> p1, p2 - 1, currentTurn
-                                | "P2", BallType.Yellow -> p1, p2 + 1, currentTurn
-                                | "P2", BallType.Black -> p1, p2, "P1Win"
-                                | _ -> p1, p2, currentTurn
+                                 match currentTurn with
+                                    //p1
+                                    | "P1" when ball.Type = p1Col -> p1 + 1, p2, currentTurn 
+                                    | "P1" when ball.Type = p2Col -> p1, p2 + 1, "BallInHandP2" // account for balls pocketed on wrong turn
+                                    | "P1" when ball.Type = BallType.Cue -> p1, p2, "BallInHandP2"
+                                    | "P1" when ball.Type = BallType.Black && p1 < 7 -> p1, p2, "P2Win" //p1 loss
+                                    | "P1" when ball.Type = BallType.Black && p1 = 7 -> p1, p2, "P1Win" //p1 win
+                                    //p2
+                                    | "P2" when ball.Type = p2Col -> p1, p2 + 1, currentTurn
+                                    | "P2" when ball.Type = p1Col -> p1 + 1, p2, "BallInHandP1" // account for balls pocketed on wrong turn
+                                    | "P2" when ball.Type = BallType.Cue -> p1, p2, "BallInHandP1"
+                                    | "P2" when ball.Type = BallType.Black && p2 < 7 -> p1, p2, "P1Win" //p2 loss
+                                    | "P2" when ball.Type = BallType.Black && p2 = 7 -> p1, p2, "P2Win" //p1 win
+
+                                    | _ -> p1, p2, currentTurn
 
                             // pocket all coloured balls and reset cueball
                             let updatedBall =
@@ -403,9 +380,9 @@ type Gameplay =
                                     { ball with Position = cueBallStartingPos; Velocity = v3 0.0f 0.0f 0.0f }
 
                             // update acc (lastPocketed = updatedBall)
-                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn, true)
+                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn, true, p1Col, p2Col)
                         else
-                            (Map.add key ball ballsMap, last, p1, p2, currentTurn, pocketed)
+                            (Map.add key ball ballsMap, last, p1, p2, currentTurn, pocketed, p1colour, p2colour)
                     ) initAcc
     
 
@@ -415,12 +392,80 @@ type Gameplay =
                 // update gameplay
                 { gameplay with
                     Balls = remainingBalls
-                    Player1 = { gameplay.Player1 with Score = score1 }
-                    Player2 = { gameplay.Player2 with Score = score2 }
-                    //Turn = newTurn
-                    //lastBallPocketed = lastBallPocketed
-                    //BallPocketed = newBallPocketed 
+                    Player1 = { gameplay.Player1 with 
+                                    Score = score1
+                                    Colour = p1colour}
+                    Player2 = { gameplay.Player2 with 
+                                    Score = score2
+                                    Colour = p2colour}
+                    Turn = turn
+                    lastBallPocketed = lastPocketedThisFrame
+                    BallPocketed = pocketed 
                     }
+
+            // handle turnPlayed
+            let gameplay =
+                let balls = gameplay.Balls
+                let turn = gameplay.Turn
+
+                let velocityLimit = 0.01f
+
+                // update IsMoving for all balls based on limit
+                let updatedBalls =
+                    balls
+                    |> Map.map (fun _ ball ->
+                        let isMoving =
+                            abs ball.Velocity.X >= velocityLimit ||
+                            abs ball.Velocity.Y >= velocityLimit ||
+                            abs ball.Velocity.Z >= velocityLimit
+                        { ball with IsMoving = isMoving }
+                    )
+
+                let ballsNotMoving =
+                    gameplay.Balls
+                    |> Map.forall (fun _ ball -> not ball.IsMoving)
+
+                let aiming =
+                    if ballsNotMoving && (turn = "P1" || turn = "P2") then
+                        true
+                    else
+                        false 
+
+                let ballsNotMovingThisFrame = 
+                    if ballsNotMoving && not ballsWereMoving then
+                        true
+                    else
+                        false
+
+                let turnPlayed =
+                    if ballsNotMovingThisFrame then
+                        true
+                    else
+                        gameplay.TurnPlayed
+               
+
+                // update gameplay
+                { gameplay with 
+                    Balls = updatedBalls
+                    Aiming = aiming
+                    TurnPlayed = turnPlayed}
+
+
+            //turn determination based off ball pocket
+            let gameplay =
+                let newTurn, turnPlayed, pocketed =
+                    if gameplay.TurnPlayed && not gameplay.BallPocketed then // no ball pocketed
+                        // switch turn
+                        let nextTurn = if gameplay.Turn = "P1" then "P2" else "P1"
+                        nextTurn, false, false  // reset TurnPlayed and BallPocketed after switching
+                    elif gameplay.TurnPlayed && gameplay.BallPocketed then // ball pocketed
+                        gameplay.Turn, false, false // keep turn and reset TurnPlayed and BallPocketed
+                    else gameplay.Turn, gameplay.TurnPlayed, gameplay.BallPocketed
+
+                {gameplay with
+                    Turn = newTurn
+                    TurnPlayed = turnPlayed
+                    BallPocketed = pocketed}
 
             // Handle resume timer
             let gameplay =
@@ -599,6 +644,25 @@ type GameplayDispatcher () =
               Content.text "ScoreP2"
                  [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
                   Entity.Position == v3 130f 168.0f 0.0f]
+
+              // icons for turn indication
+              let iconForColour colour =
+                match colour with
+                | BallType.Red -> Assets.Gameplay.redBallImage
+                | BallType.Yellow -> Assets.Gameplay.yellowBallImage
+                | BallType.Null -> Assets.Gameplay.cueBallImage
+                | _ -> Assets.Gameplay.cueBallImage
+
+              Content.staticSprite "P1 icon"
+                 [Entity.Elevation == 5.0f
+                  Entity.Position == v3 -184.0f 168.0f 0.0f
+                  Entity.Size == GlobalBallSize
+                  Entity.StaticImage := iconForColour gameplay.Player1.Colour]
+              Content.staticSprite "P2 icon"
+                 [Entity.Elevation == 5.0f
+                  Entity.Position == v3 90f 168.0f 0.0f
+                  Entity.Size == GlobalBallSize
+                  Entity.StaticImage := iconForColour gameplay.Player2.Colour]
               // quit
               Content.button Simulants.GameplayQuit.Name
                  [Entity.Position == v3 232.0f -200.0f 0.0f
