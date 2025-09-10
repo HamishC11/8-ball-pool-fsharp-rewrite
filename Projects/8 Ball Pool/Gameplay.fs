@@ -48,13 +48,11 @@ type Ball =
 type Player =
     { Name : string
       Score : int
-      FirstHit : BallType
       Colour : BallType}
 
     static member initial name =
         { Name = name
           Score = 0 
-          FirstHit = BallType.Null
           Colour = BallType.Null}
 
 
@@ -72,6 +70,7 @@ type Gameplay =
       Aiming : bool
       Player1 : Player
       Player2 : Player
+      FirstHit : BallType
       BallPocketed : bool
       lastBallPocketed : Ball
       ResumeTimer : int64}
@@ -87,6 +86,7 @@ type Gameplay =
           Turn = "P1"
           TurnPlayed = true
           Aiming = true
+          FirstHit = BallType.Null
           BallPocketed = false
           lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null
           ResumeTimer = 0L}
@@ -292,34 +292,48 @@ type Gameplay =
                 let totalBalls = List.length balls
 
                 //outer rec function to process every balls interaction with another ball
-                let rec processBalls i ballMap =
+                let rec processBalls i (ballMap, firstHit) =
                     match i with
-                    | index when index >= totalBalls -> ballMap // end once gone through all balls
+                    | index when index >= totalBalls -> ballMap, firstHit// end once gone through all balls
                     | _ ->  
                         let (ballIdA, _) = List.item i balls
                         let ballA = Map.find ballIdA ballMap
 
                         // inner rec function to handle collisions between remaining balls
-                        let rec processCollisions k updatedA updatedMap =
+                        let rec processCollisions k updatedA updatedMap firstHitSoFar =
                             match k with
-                            | index when index >= totalBalls -> updatedA, updatedMap
+                            | index when index >= totalBalls -> updatedA, updatedMap, firstHitSoFar 
                             | _ ->
                                 let (ballIdB, _) = List.item k balls
                                 let ballB = Map.find ballIdB updatedMap
 
                                 let (newA, newB) = handleCollision updatedA ballB
+                                let distance = Vector3.Distance(updatedA.Position, ballB.Position)
+                                //store firstballhit
+                                let newFirstHit =
+                                    if distance <= BallRadius then
+                                            if firstHitSoFar = BallType.Null then
+                                                if ballIdA = "Cue Ball" then ballB.Type
+                                                elif ballIdB = "Cue Ball" then ballA.Type
+                                                else firstHitSoFar
+                                            else firstHitSoFar
+                                    else firstHitSoFar
 
                                 let updatedMap = updatedMap |> Map.add ballIdB newB
-                                processCollisions (k + 1) newA updatedMap
+                                processCollisions (k + 1) newA updatedMap newFirstHit
 
-                        let (finalA, updatedMap) = processCollisions (i + 1) ballA ballMap
+                        let (finalA, updatedMap, firstHitAfter) =
+                            processCollisions (i + 1) ballA ballMap firstHit
+
                         let updatedMap = updatedMap |> Map.add ballIdA finalA
-
-                        processBalls (i + 1) (updatedMap |> Map.add ballIdA finalA)
+                        processBalls (i + 1) (updatedMap, firstHitAfter)
 
                 // call func on balls
-                let updatedBalls = processBalls 0 gameplay.Balls
-                { gameplay with Balls = updatedBalls }
+                let updatedBalls, newFirstHit = processBalls 0 (gameplay.Balls, gameplay.FirstHit)
+
+                { gameplay with 
+                    Balls = updatedBalls
+                    FirstHit = newFirstHit }
 
             //handle pocketing and turns
             let gameplay =
@@ -403,6 +417,86 @@ type Gameplay =
                     BallPocketed = pocketed 
                     }
 
+            // handle fouls (ball in hand)
+            let gameplay =
+                match gameplay.Turn with
+                | "BallInHandP1" | "BallInHandP2" ->
+                    let player = if gameplay.Turn = "BallInHandP1" then "P1" else "P2"
+
+                    let mousePos = World.getMousePosition2dScreen world
+                    let desiredPos = v3 mousePos.X mousePos.Y 0.0f
+
+                    // check if within bounds of the table
+                    let withinBounds =
+                        desiredPos.X >= -285.0f && desiredPos.X <= 285.0f &&
+                        desiredPos.Y >= -145.0f && desiredPos.Y <= 145.0f
+
+                    // check not overlapping another ball
+                    let overlapping =
+                        gameplay.Balls
+                        |> Map.exists (fun id ball ->
+                            id <> "Cue Ball" &&
+                            not ball.Pocketed &&
+                            Vector3.Distance(desiredPos, ball.Position) < BallRadius * 1.2f)
+
+                    // only update if valid
+                    let cueBall = gameplay.Balls.["Cue Ball"]
+                    let updatedCueBall =
+                        if withinBounds && not overlapping then
+                            { cueBall with Position = desiredPos; Velocity = v3 0.0f 0.0f 0.0f }
+                        else
+                            cueBall
+
+                    // commit placement on click
+                    let nextTurn =
+                        if World.isMouseButtonClicked MouseButton.MouseLeft world then
+                            if player = "P1" then "P2" else "P1"
+                        else
+                            gameplay.Turn
+
+                    { gameplay with
+                        Balls = Map.add "Cue Ball" updatedCueBall gameplay.Balls
+                        Turn = nextTurn
+                        Aiming = (nextTurn = "P1" || nextTurn = "P2") } // allow aiming only after placement
+                | _ -> gameplay
+
+
+            // turn determination based off fouls / pockets
+            let gameplay =
+                let newTurn, turnPlayed =
+                    if gameplay.TurnPlayed then
+                        match gameplay.Turn with
+                        | "P1" ->
+                            if gameplay.Player1.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player1.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
+                                // foul - wrong ball hit first
+                                "BallInHandP2", false
+                            elif not gameplay.BallPocketed then
+                                // normal turn switch
+                                "P2", false
+                            else
+                                "P1", gameplay.TurnPlayed
+
+                        | "P2" ->
+                            if gameplay.Player2.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player2.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
+                                // foul - wrong ball hit first
+                                "BallInHandP1", false
+                            elif not gameplay.BallPocketed then
+                                // normal turn switch
+                                "P1", false
+                            else
+                                "P2", gameplay.TurnPlayed
+
+                        | _ ->
+                            gameplay.Turn, gameplay.TurnPlayed
+                    else gameplay.Turn, gameplay.TurnPlayed
+
+                { gameplay with
+                    Turn = newTurn
+                    TurnPlayed = turnPlayed}
+
+
+
+
             // handle turnPlayed
             let gameplay =
                 let balls = gameplay.Balls
@@ -429,7 +523,7 @@ type Gameplay =
                     if ballsNotMoving && (turn = "P1" || turn = "P2") then
                         true
                     else
-                        false 
+                        false
 
                 let ballsNotMovingThisFrame = 
                     if ballsNotMoving && not ballsWereMoving then
@@ -438,35 +532,27 @@ type Gameplay =
                         false
 
                 let turnPlayed =
-                    if ballsNotMovingThisFrame then
+                    if ballsNotMovingThisFrame && (turn = "P1" || turn = "P2") then
                         true
                     else
                         gameplay.TurnPlayed
-               
+
+                let firstHit, ballPocketed =
+                    if ballsNotMoving && ballsWereMoving then
+                        BallType.Null, false
+                    else
+                        gameplay.FirstHit, gameplay.BallPocketed
 
                 // update gameplay
                 { gameplay with 
                     Balls = updatedBalls
                     Aiming = aiming
-                    TurnPlayed = turnPlayed}
-
-
-            //turn determination based off ball pocket
-            let gameplay =
-                let newTurn, turnPlayed, pocketed =
-                    if gameplay.TurnPlayed && not gameplay.BallPocketed then // no ball pocketed
-                        // switch turn
-                        let nextTurn = if gameplay.Turn = "P1" then "P2" else "P1"
-                        nextTurn, false, false  // reset TurnPlayed and BallPocketed after switching
-                    elif gameplay.TurnPlayed && gameplay.BallPocketed then // ball pocketed
-                        gameplay.Turn, false, false // keep turn and reset TurnPlayed and BallPocketed
-                    else gameplay.Turn, gameplay.TurnPlayed, gameplay.BallPocketed
-
-                {gameplay with
-                    Turn = newTurn
                     TurnPlayed = turnPlayed
-                    BallPocketed = pocketed}
+                    BallPocketed = ballPocketed
+                    FirstHit = firstHit }
 
+
+            
             // Handle resume timer
             let gameplay =
                 if gameplay.ResumeTimer > 0L then
