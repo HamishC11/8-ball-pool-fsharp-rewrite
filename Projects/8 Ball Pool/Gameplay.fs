@@ -66,6 +66,7 @@ type Gameplay =
       Cue : Cue
       Balls : Map<String, Ball>
       Turn : string
+      NextTurn : string
       TurnPlayed : bool
       Aiming : bool
       Player1 : Player
@@ -84,6 +85,7 @@ type Gameplay =
           Player1 = Player.initial "Player 1"
           Player2 = Player.initial "Player 2"
           Turn = "P1"
+          NextTurn = ""
           TurnPlayed = true
           Aiming = true
           FirstHit = BallType.Null
@@ -412,7 +414,7 @@ type Gameplay =
                     Player2 = { gameplay.Player2 with 
                                     Score = score2
                                     Colour = p2colour}
-                    Turn = turn
+                    NextTurn = turn
                     lastBallPocketed = lastPocketedThisFrame
                     BallPocketed = pocketed 
                     }
@@ -465,37 +467,42 @@ type Gameplay =
             let gameplay =
                 let newTurn, turnPlayed =
                     if gameplay.TurnPlayed then
-                        match gameplay.Turn with
-                        | "P1" ->
-                            if gameplay.Player1.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player1.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
-                                // foul - wrong ball hit first
-                                "BallInHandP2", false
-                            elif not gameplay.BallPocketed then
-                                // normal turn switch
-                                "P2", false
-                            else
-                                "P1", gameplay.TurnPlayed
+                        if gameplay.NextTurn = gameplay.Turn then // if predetermined balls from pocketed ball didnt change, run firsthit calculations
+                            match gameplay.Turn with
+                            | "P1" ->
+                                if gameplay.Player1.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player1.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
+                                    // foul - wrong ball hit first
+                                    "BallInHandP2", false
+                                elif gameplay.BallPocketed then
+                                    "P1", false
+                                else
+                                    // normal turn switch
+                                    "P2", false
 
-                        | "P2" ->
-                            if gameplay.Player2.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player2.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
-                                // foul - wrong ball hit first
-                                "BallInHandP1", false
-                            elif not gameplay.BallPocketed then
-                                // normal turn switch
-                                "P1", false
-                            else
-                                "P2", gameplay.TurnPlayed
+                            | "P2" ->
+                                if gameplay.Player2.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player2.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
+                                    // foul - wrong ball hit first
+                                    "BallInHandP1", false
+                                elif gameplay.BallPocketed then
+                                    "P2", false
+                                else
+                                    // normal turn switch
+                                    "P1", false
 
-                        | _ ->
-                            gameplay.Turn, gameplay.TurnPlayed
+                            | _ -> gameplay.Turn, gameplay.TurnPlayed
+                        else gameplay.NextTurn, false // use correct turn if balls are pocketed
                     else gameplay.Turn, gameplay.TurnPlayed
 
+                let firstHit, ballPocketed =
+                    if gameplay.TurnPlayed then
+                        BallType.Null, false
+                    else
+                        gameplay.FirstHit, gameplay.BallPocketed
                 { gameplay with
                     Turn = newTurn
-                    TurnPlayed = turnPlayed}
-
-
-
+                    TurnPlayed = turnPlayed
+                    BallPocketed = ballPocketed
+                    FirstHit = firstHit }
 
             // handle turnPlayed
             let gameplay =
@@ -537,19 +544,11 @@ type Gameplay =
                     else
                         gameplay.TurnPlayed
 
-                let firstHit, ballPocketed =
-                    if ballsNotMoving && ballsWereMoving then
-                        BallType.Null, false
-                    else
-                        gameplay.FirstHit, gameplay.BallPocketed
-
                 // update gameplay
                 { gameplay with 
                     Balls = updatedBalls
                     Aiming = aiming
-                    TurnPlayed = turnPlayed
-                    BallPocketed = ballPocketed
-                    FirstHit = firstHit }
+                    TurnPlayed = turnPlayed}
 
 
             
