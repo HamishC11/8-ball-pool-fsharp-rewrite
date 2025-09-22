@@ -12,6 +12,8 @@ type GameplayState =
     | Paused
     | Quit
 
+type Mode = Singleplayer | Multiplayer
+
 type Cue =
     {Position : Vector3
      Size : Vector3 
@@ -62,7 +64,8 @@ type Player =
 // this model representation uses update time, that is, time based on number of engine updates.
 type Gameplay =
     { GameplayTime : int64
-      GameplayState : GameplayState 
+      GameplayState : GameplayState
+      GameMode : Mode
       Cue : Cue
       Balls : Map<String, Ball>
       Turn : string
@@ -71,19 +74,23 @@ type Gameplay =
       Aiming : bool
       Player1 : Player
       Player2 : Player
+      AITurn : bool
       FirstHit : BallType
       BallPocketed : bool
       lastBallPocketed : Ball
+      AITurnCooldown : int
       ResumeTimer : int64}
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
           GameplayState = Quit 
+          GameMode = Mode.Multiplayer
           Cue = Cue.initial
           Balls = Map.empty
           Player1 = Player.initial "Player 1"
           Player2 = Player.initial "Player 2"
+          AITurn = true
           Turn = "P1"
           NextTurn = ""
           TurnPlayed = true
@@ -91,6 +98,7 @@ type Gameplay =
           FirstHit = BallType.Null
           BallPocketed = false
           lastBallPocketed = Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null
+          AITurnCooldown = 0
           ResumeTimer = 0L}
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
@@ -167,53 +175,103 @@ type Gameplay =
                 let cue =
                     // handle all cue movements when no balls are moving and game is not paused
                     if aiming && gameplay.GameplayState = Playing then
-                        let cue = 
-                            // min max func
+                        if gameplay.AITurn && gameplay.GameMode = Mode.Singleplayer then
+                            // Hide cue during AI turn
+                            let offscreenPos = v2 999.0f 999.0f
+                            { cue with Position = v3 offscreenPos.X offscreenPos.Y cueBall.Position.Z }
+                        else
                             let clampedPower power = min MaxPower (max MinPower power)
-                            if World.isKeyboardKeyDown KeyboardKey.S world then
-                                { cue with Power = clampedPower (cue.Power - PowerIncrement) }
-                            elif World.isKeyboardKeyDown KeyboardKey.W world then
-                                { cue with Power = clampedPower (cue.Power + PowerIncrement) }
-                            else cue
-                        { cue with 
-                            Position = v3 cuePos2D.X cuePos2D.Y cueBall.Position.Z 
-                            Rotation = rotationQuat}
+                            let cueWithPower =
+                                if World.isKeyboardKeyDown KeyboardKey.S world then
+                                    { cue with Power = clampedPower (cue.Power - PowerIncrement) }
+                                elif World.isKeyboardKeyDown KeyboardKey.W world then
+                                    { cue with Power = clampedPower (cue.Power + PowerIncrement) }
+                                else cue
+                            { cueWithPower with 
+                                Position = v3 cuePos2D.X cuePos2D.Y cueBall.Position.Z
+                                Rotation = rotationQuat }
                     else
-                        
-                        let cue =
-                            {cue with
-                                Power = Cue.initial.Power}
-                        cue
+                        // Reset cue power when not aiming
+                        { cue with Power = Cue.initial.Power }
+
                 { gameplay with Cue = cue}
 
             //update cueball movement
             let gameplay =
                 let cueBall = gameplay.Balls.["Cue Ball"]
                 let aiming = gameplay.Aiming
+                let cueBall, AIcooldown =
+                    // Human Shoot Calc
+                    let mousePos = World.getMousePosition2dScreen world
+                    let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
+                    //direction of mouse relative to cueball
+                    let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
 
-                // mover
-                let mousePos = World.getMousePosition2dScreen world
-                let cueBallPos2D = v2 cueBall.Position.X cueBall.Position.Y
-                //direction of mouse relative to cueball
-                let direction2D = Vector2.Normalize(mousePos - cueBallPos2D)
-                let cueBall =
-                    // only shoot if turn is complete
-                    if aiming then
+                    match gameplay.GameMode, gameplay.Turn with
+                    | Multiplayer, _ ->
+                        if aiming then
+                            if World.isMouseButtonClicked MouseButton.MouseLeft world && gameplay.GameplayState = Playing then
+                                // Launch in cue direction
+                                { cueBall with 
+                                    Velocity = (v3 direction2D.X direction2D.Y 0.0f) * gameplay.Cue.Power
+                                    IsMoving = true}, 0
+
+                            else
+                                {cueBall with IsMoving = false}, 0
+                        else
+                            cueBall, 0
+                    | Singleplayer, "P1" when aiming ->
                         if World.isMouseButtonClicked MouseButton.MouseLeft world && gameplay.GameplayState = Playing then
-                            // Launch in cue direction
                             { cueBall with 
                                 Velocity = (v3 direction2D.X direction2D.Y 0.0f) * gameplay.Cue.Power
-                                IsMoving = true}
-
+                                IsMoving = true }, DefAIcooldown
                         else
-                            {cueBall with IsMoving = false}
-                    else
-                        cueBall
+                            {cueBall with IsMoving = false}, DefAIcooldown
 
+                    | Singleplayer, "P2" when aiming ->
+                        if gameplay.AITurnCooldown <= 0 then
+                            //AI Shoot Calc
+                            let targetBalls =
+                                gameplay.Balls
+                                |> Map.toList
+                                |> List.map snd
+                                |> List.filter (fun b -> b.Type = gameplay.Player2.Colour)
+
+                            let target =
+                                if targetBalls.Length > 0 then // ai suit on the table
+                                    targetBalls
+                                    |> List.minBy (fun ball ->
+                                        Vector3.Distance(cueBall.Position, ball.Position)) // nearest ball of AI's suit
+                                else
+                                    if gameplay.Player2.Colour = BallType.Null then // suit unselected
+                                        gameplay.Balls
+                                        |> Map.toList
+                                        |> List.map snd
+                                        |> List.filter (fun b -> b.Type <> BallType.Cue)
+                                        |> List.minBy (fun ball ->
+                                        Vector3.Distance(cueBall.Position, ball.Position)) // nearest ball overall
+                                    else 
+                                        gameplay.Balls.["Ball 4"] //all ai suit pocketed - target black ball
+
+                            // direction cueball -> target
+                            let direction = target.Position - cueBall.Position
+                            let variationVector = (v2 (Gen.randomf - 0.5f) (Gen.randomf - 0.5f)) * VariationFactor // create a random vector we'll add to the direct one to give some variation
+                            let direction2D = Vector2.Normalize(Vector2(direction.X, direction.Y)) + variationVector
+
+                            // Launch in direction
+                            { cueBall with 
+                                Velocity = (v3 direction2D.X direction2D.Y 0.0f) * (Gen.randomf + 0.1f) * (MaxPower - (MinPower + 20.0f)) //random power
+                                IsMoving = true }, DefAIcooldown
+                        else
+                            // decrease cooldown
+                            cueBall, gameplay.AITurnCooldown - 1
+                            
+                    | _ -> cueBall, gameplay.AITurnCooldown
                 //update Ball list
                 let updatedBalls = Map.add "Cue Ball" cueBall gameplay.Balls
                 { gameplay with 
-                    Balls = updatedBalls}
+                    Balls = updatedBalls
+                    AITurnCooldown = AIcooldown}
 
             //ball movement
             let gameplay =
@@ -348,12 +406,13 @@ type Gameplay =
                       gameplay.Turn,                              // turn
                       gameplay.BallPocketed,                       // pocketed
                       gameplay.Player1.Colour,                     //p1 ball colour
-                      gameplay.Player2.Colour)                     //p2 ball colour
+                      gameplay.Player2.Colour,                     //p2 ball colour
+                      gameplay.AITurn)                            //AI turn check
 
                 // fold over all balls
-                let updatedBalls, lastPocketedThisFrame, score1, score2, turn, pocketed, p1colour, p2colour =
+                let updatedBalls, lastPocketedThisFrame, score1, score2, turn, pocketed, p1colour, p2colour, aIturn =
                     gameplay.Balls
-                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn, pocketed, p1colour, p2colour) key ball ->
+                    |> Map.fold (fun (ballsMap, last, p1, p2, currentTurn, pocketed, p1colour, p2colour, aIturn) key ball ->
                         if IsInsideHole ball.Position then
                             // set players colours if not set yet
                             let p1Col, p2Col =
@@ -370,23 +429,23 @@ type Gameplay =
                                        BallType.Red, ball.Type
                                     else BallType.Null, BallType.Null
                                 else gameplay.Player1.Colour, gameplay.Player2.Colour
-                            let newP1, newP2, newTurn =
+                            let newP1, newP2, newTurn, newAIturn =
                                 // handle score/turn updates for pocketed balls
                                  match currentTurn with
                                     //p1
-                                    | "P1" when ball.Type = p1Col -> p1 + 1, p2, currentTurn 
-                                    | "P1" when ball.Type = p2Col -> p1, p2 + 1, "BallInHandP2" // account for balls pocketed on wrong turn
-                                    | "P1" when ball.Type = BallType.Cue -> p1, p2, "BallInHandP2"
-                                    | "P1" when ball.Type = BallType.Black && p1 < 7 -> p1, p2, "P2Win" //p1 loss
-                                    | "P1" when ball.Type = BallType.Black && p1 = 7 -> p1, p2, "P1Win" //p1 win
+                                    | "P1" when ball.Type = p1Col -> p1 + 1, p2, currentTurn, false 
+                                    | "P1" when ball.Type = p2Col -> p1, p2 + 1, "BallInHandP2", true // account for balls pocketed on wrong turn
+                                    | "P1" when ball.Type = BallType.Cue -> p1, p2, "BallInHandP2", true
+                                    | "P1" when ball.Type = BallType.Black && p1 < 7 -> p1, p2, "P2Win", false //p1 loss
+                                    | "P1" when ball.Type = BallType.Black && p1 = 7 -> p1, p2, "P1Win", false //p1 win
                                     //p2
-                                    | "P2" when ball.Type = p2Col -> p1, p2 + 1, currentTurn
-                                    | "P2" when ball.Type = p1Col -> p1 + 1, p2, "BallInHandP1" // account for balls pocketed on wrong turn
-                                    | "P2" when ball.Type = BallType.Cue -> p1, p2, "BallInHandP1"
-                                    | "P2" when ball.Type = BallType.Black && p2 < 7 -> p1, p2, "P1Win" //p2 loss
-                                    | "P2" when ball.Type = BallType.Black && p2 = 7 -> p1, p2, "P2Win" //p1 win
+                                    | "P2" when ball.Type = p2Col -> p1, p2 + 1, currentTurn, true
+                                    | "P2" when ball.Type = p1Col -> p1 + 1, p2, "BallInHandP1", false // account for balls pocketed on wrong turn
+                                    | "P2" when ball.Type = BallType.Cue -> p1, p2, "BallInHandP1", false
+                                    | "P2" when ball.Type = BallType.Black && p2 < 7 -> p1, p2, "P1Win", false //p2 loss
+                                    | "P2" when ball.Type = BallType.Black && p2 = 7 -> p1, p2, "P2Win", false //p1 win
 
-                                    | _ -> p1, p2, currentTurn
+                                    | _ -> p1, p2, currentTurn, aIturn
 
                             // pocket all coloured balls and reset cueball
                             let updatedBall =
@@ -396,9 +455,9 @@ type Gameplay =
                                     { ball with Position = cueBallStartingPos; Velocity = v3 0.0f 0.0f 0.0f }
 
                             // update acc (lastPocketed = updatedBall)
-                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn, true, p1Col, p2Col)
+                            (Map.add key updatedBall ballsMap, updatedBall, newP1, newP2, newTurn, true, p1Col, p2Col, newAIturn)
                         else
-                            (Map.add key ball ballsMap, last, p1, p2, currentTurn, pocketed, p1colour, p2colour)
+                            (Map.add key ball ballsMap, last, p1, p2, currentTurn, pocketed, p1colour, p2colour, aIturn)
                     ) initAcc
     
 
@@ -417,6 +476,7 @@ type Gameplay =
                     NextTurn = turn
                     lastBallPocketed = lastPocketedThisFrame
                     BallPocketed = pocketed 
+                    AITurn = aIturn
                     }
 
             // handle fouls (ball in hand)
@@ -465,33 +525,40 @@ type Gameplay =
 
             // turn determination based off fouls / pockets
             let gameplay =
-                let newTurn, turnPlayed =
+                let P1 = gameplay.Player1
+                let P2 = gameplay.Player2
+                let newTurn, turnPlayed, AIturn =
                     if gameplay.TurnPlayed then
                         if gameplay.NextTurn = gameplay.Turn then // if predetermined balls from pocketed ball didnt change, run firsthit calculations
                             match gameplay.Turn with
                             | "P1" ->
-                                if gameplay.Player1.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player1.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
-                                    // foul - wrong ball hit first
-                                    "BallInHandP2", false
+                                if P1.Colour <> BallType.Null && gameplay.FirstHit <> P1.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
+                                    if P1.Score < 7 then // firsthit blackball is ok if others pocketed
+                                        // foul - wrong ball hit first
+                                        "BallInHandP2", false, true
+                                    else "P2", false, true //normal turn switch
                                 elif gameplay.BallPocketed then
-                                    "P1", false
+                                    "P1", false, false
                                 else
                                     // normal turn switch
-                                    "P2", false
+                                    "P2", false, true
+
 
                             | "P2" ->
-                                if gameplay.Player2.Colour <> BallType.Null && gameplay.FirstHit <> gameplay.Player2.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
-                                    // foul - wrong ball hit first
-                                    "BallInHandP1", false
+                                if P2.Colour <> BallType.Null && gameplay.FirstHit <> P2.Colour && gameplay.FirstHit <> BallType.Null then// make sure hit fouls only count after suit is decided
+                                    if P2.Score < 7 then
+                                        // foul - wrong ball hit first
+                                        "BallInHandP1", false, false
+                                    else "P1", false, false
                                 elif gameplay.BallPocketed then
-                                    "P2", false
+                                    "P2", false, true
                                 else
                                     // normal turn switch
-                                    "P1", false
+                                    "P1", false, false
 
-                            | _ -> gameplay.Turn, gameplay.TurnPlayed
-                        else gameplay.NextTurn, false // use correct turn if balls are pocketed
-                    else gameplay.Turn, gameplay.TurnPlayed
+                            | _ -> gameplay.Turn, gameplay.TurnPlayed, gameplay.AITurn
+                        else gameplay.NextTurn, false, gameplay.AITurn // use correct turn if balls are pocketed
+                    else gameplay.Turn, gameplay.TurnPlayed, gameplay.AITurn
 
                 let firstHit, ballPocketed =
                     if gameplay.TurnPlayed then
@@ -502,7 +569,8 @@ type Gameplay =
                     Turn = newTurn
                     TurnPlayed = turnPlayed
                     BallPocketed = ballPocketed
-                    FirstHit = firstHit }
+                    FirstHit = firstHit 
+                    AITurn = AIturn}
 
             // handle turnPlayed
             let gameplay =
@@ -551,6 +619,9 @@ type Gameplay =
                     TurnPlayed = turnPlayed}
 
 
+            // win/lose
+            //let gameplay =
+             //   if gameplay.Turn = "P1Win"
             
             // Handle resume timer
             let gameplay =
@@ -572,6 +643,8 @@ type Gameplay =
 // this is our gameplay MMCC message type.
 type GameplayMessage =
     | StartPlaying
+    | StartSingleplayer
+    | StartMultiplayer
     | FinishQuitting
     | Update
     | TimeUpdate
@@ -613,9 +686,10 @@ type GameplayDispatcher () =
     override this.Message (gameplay, message, _, world) =
 
         match message with
-        | StartPlaying ->
-            let gameplay = Gameplay.initial
-            just gameplay
+        | StartPlaying -> just gameplay
+
+        | StartSingleplayer -> just { Gameplay.initial with GameMode = Singleplayer }
+        | StartMultiplayer -> just { Gameplay.initial with GameMode = Multiplayer }
 
         | FinishQuitting ->
             let gameplay = Gameplay.empty
@@ -694,28 +768,29 @@ type GameplayDispatcher () =
                      
                      // Continue button
                      Content.button "ContinueButton"
-                        [Entity.Position == v3 0.0f 0.0f 0.0f
+                        [Entity.Position == v3 0.0f 50.0f 0.0f
+                         Entity.Text == "Continue"
                          Entity.StaticImage == Assets.Gameplay.continuebuttonImage
                          Entity.Elevation == 5.0f
                          Entity.ClickEvent => Continue]
                      
                      // Singleplayer button
                      Content.button "SingleplayerButton"
-                        [Entity.Position == v3 0.0f -50.0f 0.0f
+                        [Entity.Position == v3 0.0f 0.0f 0.0f
                          Entity.Text == "Singleplayer"
                          Entity.Elevation == 5.0f
-                         Entity.ClickEvent => StartPlaying]
+                         Entity.ClickEvent => StartSingleplayer]
                      
                      // Multiplayer button
                      Content.button "MultiplayerButton"
-                        [Entity.Position == v3 0.0f -100.0f 0.0f
+                        [Entity.Position == v3 0.0f -50.0f 0.0f
                          Entity.Text == "Multiplayer"
                          Entity.Elevation == 5.0f
-                         Entity.ClickEvent => StartPlaying]
+                         Entity.ClickEvent => StartMultiplayer]
                      
                      // Exit button
                      Content.button "ExitButton"
-                        [Entity.Position == v3 0.0f -150.0f 0.0f
+                        [Entity.Position == v3 0.0f -100.0f 0.0f
                          Entity.Text == "Exit"
                          Entity.Elevation == 5.0f
                          Entity.ClickEvent => StartQuitting]]

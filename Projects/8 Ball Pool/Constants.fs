@@ -7,8 +7,14 @@ open Nu
 module Constants =
     [<Literal>]
 
+    // AI cooldown length
+    let DefAIcooldown = 60
+
     // friction factor for the table
     let FrictionFactor = 0.98f
+    
+    // Variation factor for AI randomness
+    let VariationFactor = 0.2f
 
     // Cue Power limits
     let MaxPower = 40.0f
