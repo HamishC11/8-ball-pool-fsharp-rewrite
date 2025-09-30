@@ -10,6 +10,7 @@ open MyGame.Constants
 type GameplayState =
     | Playing
     | Paused
+    | Controls
     | Quit
 
 type Mode = Singleplayer | Multiplayer
@@ -50,12 +51,14 @@ type Ball =
 type Player =
     { Name : string
       Score : int
-      Colour : BallType}
+      Colour : BallType
+      WinCount : int}
 
     static member initial name =
         { Name = name
           Score = 0 
-          Colour = BallType.Null}
+          Colour = BallType.Null
+          WinCount = 0}
 
 
         
@@ -84,8 +87,8 @@ type Gameplay =
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
-          GameplayState = Quit 
-          GameMode = Mode.Multiplayer
+          GameplayState = Quit
+          GameMode = Mode.Singleplayer
           Cue = Cue.initial
           Balls = Map.empty
           Player1 = Player.initial "Player 1"
@@ -135,12 +138,12 @@ type Gameplay =
             |> Map.ofList
             
         { Gameplay.empty with
-            GameplayState = Playing
+            GameplayState = Controls
             Balls = balls}
 
     static member update gameplay world = 
         match gameplay.GameplayState with
-        | Playing | Paused ->
+        | Playing | Paused | Controls ->
             let ballsWereMoving = gameplay.Aiming
             //update cue
             let gameplay =
@@ -229,7 +232,7 @@ type Gameplay =
                             {cueBall with IsMoving = false}, DefAIcooldown
 
                     | Singleplayer, "P2" when aiming ->
-                        if gameplay.AITurnCooldown <= 0 then
+                        if gameplay.AITurnCooldown <= 0 && gameplay.GameplayState = Playing then
                             //AI Shoot Calc
                             let targetBalls =
                                 gameplay.Balls
@@ -620,9 +623,12 @@ type Gameplay =
 
 
             // win/lose
-            //let gameplay =
-             //   if gameplay.Turn = "P1Win"
-            
+            let gameplay =
+                let P1 = gameplay.Player1
+                let P2 = gameplay.Player2
+                if gameplay.Turn = "P1Win" then {gameplay with Player1.WinCount = P1.WinCount + 1}
+                elif gameplay.Turn = "P2Win" then {gameplay with Player2.WinCount = P2.WinCount + 1}
+                else gameplay
             // Handle resume timer
             let gameplay =
                 if gameplay.ResumeTimer > 0L then
@@ -640,9 +646,9 @@ type Gameplay =
 
         | Quit -> gameplay
 
+
 // this is our gameplay MMCC message type.
 type GameplayMessage =
-    | StartPlaying
     | StartSingleplayer
     | StartMultiplayer
     | FinishQuitting
@@ -677,17 +683,16 @@ type GameplayDispatcher () =
 
     // here we define the screen's property values and event handling
     override this.Definitions (_, _) =
-        [Screen.SelectEvent => StartPlaying
-         Screen.DeselectingEvent => FinishQuitting
+        [Screen.DeselectingEvent => FinishQuitting
          Screen.UpdateEvent => Update
-         Screen.TimeUpdateEvent => TimeUpdate]
+         Screen.TimeUpdateEvent => TimeUpdate
+         Events.StartSingleplayerGame => StartSingleplayer
+         Events.StartMultiplayerGame => StartMultiplayer]
 
     // here we handle the above messages
     override this.Message (gameplay, message, _, world) =
 
         match message with
-        | StartPlaying -> just gameplay
-
         | StartSingleplayer -> just { Gameplay.initial with GameMode = Singleplayer }
         | StartMultiplayer -> just { Gameplay.initial with GameMode = Multiplayer }
 
@@ -745,86 +750,136 @@ type GameplayDispatcher () =
                              Entity.StaticImage == Assets.Gameplay.blackBallImage
                           elif ball.Type = BallType.Cue then
                              Entity.StaticImage == Assets.Gameplay.cueBallImage]
-                  // turn display
-                  Content.text "Turn"
-                     [Entity.Text := "Player: " + gameplay.Turn
-                      Entity.Position == v3 0.0f 0.0f 0.0f
-                      Entity.Elevation == 0.5f]
                   
                   // pause overlay when paused
                   if gameplay.GameplayState = Paused then
-                     Content.staticSprite "Pause"
+
+                       Content.staticSprite "Pause"
                         [Entity.Position == v3 0.0f 0.0f 0.0f
                          Entity.Size == v3 640f 360f 0.0f
                          Entity.StaticImage == Assets.Gameplay.pauseImage
                          Entity.Elevation == 4.0f]
-                     
-                     // pause menu content
-                     Content.text "PauseTitle"
-                        [Entity.Text == "Classic 8-Ball"
-                         Entity.Position == v3 0.0f 100.0f 0.0f
-                         Entity.Elevation == 5.0f
-                         Entity.Font == Assets.Default.Font]
-                     
-                     // Continue button
-                     Content.button "ContinueButton"
-                        [Entity.Position == v3 0.0f 50.0f 0.0f
-                         Entity.Text == "Continue"
-                         Entity.StaticImage == Assets.Gameplay.continuebuttonImage
-                         Entity.Elevation == 5.0f
-                         Entity.ClickEvent => Continue]
-                     
-                     // Singleplayer button
-                     Content.button "SingleplayerButton"
-                        [Entity.Position == v3 0.0f 0.0f 0.0f
-                         Entity.Text == "Singleplayer"
-                         Entity.Elevation == 5.0f
-                         Entity.ClickEvent => StartSingleplayer]
-                     
-                     // Multiplayer button
-                     Content.button "MultiplayerButton"
-                        [Entity.Position == v3 0.0f -50.0f 0.0f
-                         Entity.Text == "Multiplayer"
-                         Entity.Elevation == 5.0f
-                         Entity.ClickEvent => StartMultiplayer]
-                     
-                     // Exit button
-                     Content.button "ExitButton"
-                        [Entity.Position == v3 0.0f -100.0f 0.0f
-                         Entity.Text == "Exit"
-                         Entity.Elevation == 5.0f
-                         Entity.ClickEvent => StartQuitting]]
+   
+                       // pause menu content
+                       Content.text "PauseTitle"
+                          [Entity.Text == "Classic 8-Ball"
+                           Entity.Position == v3 -150.0f 100.0f 0.0f
+                           Entity.Size == v3 300f 100f 0f
+                           Entity.Elevation == 5.0f
+                           Entity.Font == Assets.Default.Font]
+   
+                       // Continue button
+                       Content.button "ContinueButton"
+                          [Entity.Position == v3 -150.0f 35.0f 0.0f
+                           Entity.Size == v3 177f 46f 0.0f
+                           Entity.UpImage == Assets.Gui.continuebuttonImage2
+                           Entity.DownImage == Assets.Gui.continuebuttonHoverImage
+                           Entity.Elevation == 5.0f
+                           Entity.ClickEvent => Continue]
+   
+                       // Singleplayer button
+                       Content.button "SingleplayerButton"
+                          [Entity.Position == v3 -150.0f -30.0f 0.0f
+                           Entity.Size == v3 177f 46f 0.0f
+                           Entity.UpImage == Assets.Gui.playerVsPlayer
+                           Entity.DownImage == Assets.Gui.playerVsPlayerHover
+                           Entity.Elevation == 5.0f
+                           Entity.ClickEvent => StartMultiplayer]
+   
+                       // Multiplayer button
+                       Content.button "MultiplayerButton"
+                          [Entity.Position == v3 -150.0f -95.0f 0.0f
+                           Entity.Size == v3 177f 46f 0.0f
+                           Entity.UpImage == Assets.Gui.playerVsComputer
+                           Entity.DownImage == Assets.Gui.playerVsComputerHover
+                           Entity.Elevation == 5.0f
+                           Entity.ClickEvent => StartSingleplayer]
+   
+                       // Exit button
+                       Content.button "ExitButton"
+                          [Entity.Position == v3 225.0f -150.0f 0.0f
+                           Entity.Text == "Exit"
+                           Entity.Elevation == 5.0f
+                           Entity.ClickEvent => StartQuitting]]
+             // the gui group
+             Content.group Simulants.GameplayGui.Name []
+                 [// Draw current turn
+                  let ogColour = Color(0.0f, 104.0f/255.0f, 52.0f/255.0f, 1.0f)
+                  let turnText = "PLAYER " + (if gameplay.Turn = "P1" then "1" else "2")
+                  Content.text "TurnText"
+                      [ Entity.Text := turnText
+                        Entity.Position == v3 0.0f 72.0f 0.0f
+                        Entity.Size == v3 100.0f 50f 0.0f
+                        Entity.Elevation == 0.5f
+                        Entity.TextColor := ogColour //same colour as og game
+                        Entity.Font == Assets.Gui.backgroundFont
+                        Entity.FontSizing == Some(25)]
 
-         // the gui group
-         Content.group Simulants.GameplayGui.Name []
-             [//score display
-              Content.text "ScoreP1"
-                 [Entity.Text := "Player 1: " + gameplay.Player1.Score.ToString()
-                  Entity.Position == v3 -144f 168.0f 0.0f]
-              Content.text "ScoreP2"
-                 [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
-                  Entity.Position == v3 130f 168.0f 0.0f]
+                  // Draw player total scores
+                  Content.text "Player1Wins"
+                      [ Entity.Text := gameplay.Player1.WinCount.ToString()
+                        Entity.Position == v3 30.0f 32.0f 0.0f
+                        Entity.TextColor := ogColour
+                        Entity.Font == Assets.Gui.backgroundFont
+                        Entity.FontSizing == Some(60)
+                        Entity.Size == v3 100.0f 100.0f 0.0f ]
+                  Content.text "Player2Wins"
+                      [ Entity.Text := gameplay.Player2.WinCount.ToString()
+                        Entity.Position == v3 -29.0f 32.0f 0.0f
+                        Entity.TextColor := ogColour
+                        Entity.Font == Assets.Gui.backgroundFont
+                        Entity.FontSizing == Some(60)
+                        Entity.Size == v3 100.0f 100.0f 0.0f]
+    
+                 //score display
+                  Content.text "ScoreP1"
+                     [Entity.Text := "Player 1: " + gameplay.Player1.Score.ToString()
+                      Entity.Position == v3 -144f 168.0f 0.0f]
+                  Content.text "ScoreP2"
+                     [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
+                      Entity.Position == v3 130f 168.0f 0.0f]
 
-              // icons for turn indication
-              let iconForColour colour =
-                match colour with
-                | BallType.Red -> Assets.Gameplay.redBallImage
-                | BallType.Yellow -> Assets.Gameplay.yellowBallImage
-                | BallType.Null -> Assets.Gameplay.cueBallImage
-                | _ -> Assets.Gameplay.cueBallImage
+                  // icons for turn indication
+                  let iconForColour colour =
+                    match colour with
+                    | BallType.Red -> Assets.Gameplay.redBallImage
+                    | BallType.Yellow -> Assets.Gameplay.yellowBallImage
+                    | BallType.Null -> Assets.Gameplay.cueBallImage
+                    | _ -> Assets.Gameplay.cueBallImage
 
-              Content.staticSprite "P1 icon"
-                 [Entity.Elevation == 5.0f
-                  Entity.Position == v3 -184.0f 168.0f 0.0f
-                  Entity.Size == GlobalBallSize
-                  Entity.StaticImage := iconForColour gameplay.Player1.Colour]
-              Content.staticSprite "P2 icon"
-                 [Entity.Elevation == 5.0f
-                  Entity.Position == v3 90f 168.0f 0.0f
-                  Entity.Size == GlobalBallSize
-                  Entity.StaticImage := iconForColour gameplay.Player2.Colour]
-              // quit
-              Content.button Simulants.GameplayQuit.Name
-                 [Entity.Position == v3 232.0f -200.0f 0.0f
-                  Entity.Text == "Quit"
-                  Entity.ClickEvent => StartQuitting]]]
+                  Content.staticSprite "P1 icon"
+                     [Entity.Elevation == 5.0f
+                      Entity.Position == v3 -184.0f 168.0f 0.0f
+                      Entity.Size == GlobalBallSize
+                      Entity.StaticImage := iconForColour gameplay.Player1.Colour]
+                  Content.staticSprite "P2 icon"
+                     [Entity.Elevation == 5.0f
+                      Entity.Position == v3 90f 168.0f 0.0f
+                      Entity.Size == GlobalBallSize
+                      Entity.StaticImage := iconForColour gameplay.Player2.Colour]
+                  // quit
+                  Content.button Simulants.GameplayQuit.Name
+                     [Entity.Position == v3 232.0f -200.0f 0.0f
+                      Entity.Text == "Quit"
+                      Entity.ClickEvent => StartQuitting]]
+                   
+         elif gameplay.GameplayState = Controls then
+            Content.group Simulants.ControlsGui.Name []
+                [// Background
+                 Content.staticSprite "Background"
+                    [Entity.Position == v3 0.0f 0.0f 0.0f
+                     Entity.Size == v3 300f 300f 0.0f
+                     Entity.StaticImage == Assets.Gui.controlsImage
+                     Entity.Elevation == 1.0f
+                     Entity.Visible == true]
+             
+                 // Clickable area to start game
+                 Content.button Simulants.ControlsStart.Name
+                    [Entity.Position == v3 0.0f 0.0f 0.0f
+                     Entity.Size == v3 240f 360f 0.0f
+                     Entity.UpImage == Assets.Default.EmptyImage
+                     Entity.DownImage == Assets.Default.EmptyImage
+                     Entity.Elevation == 2.0f
+                     Entity.Visible == true
+                     Entity.ClickEvent => Continue]]]
+

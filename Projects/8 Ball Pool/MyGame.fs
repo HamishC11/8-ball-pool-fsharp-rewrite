@@ -5,6 +5,12 @@ open Prime
 open Nu
 open MyGame
 
+// this extends the Screen API to expose the StartGameEvent
+[<AutoOpen>]
+module ControlsExtensions =
+    type Screen with
+        member this.StartGameEvent = Events.StartGameEvent --> this
+
 // this is our top-level MMCC model type. It determines what state the game is in. To learn about MMCC in Nu, see -
 // https://github.com/bryanedds/Nu/wiki/Model-View-Update-for-Games-via-MMCC
 type MyGame =
@@ -18,6 +24,8 @@ type MyGameMessage =
     | ShowTitle
     | ShowCredits
     | ShowGameplay
+    | ShowSingleplayerGame
+    | ShowMultiplayerGame
     interface Message
 
 // this is our top-level MMCC command type. Commands are used instead of messages when the world is to be transformed.
@@ -47,19 +55,25 @@ type MyGameDispatcher () =
             | Credits -> Desire Simulants.Credits
             | Gameplay -> Desire Simulants.Gameplay
          if myGame = Splash then Simulants.Splash.DeselectingEvent => ShowTitle
-         Simulants.TitleMultiplayer.ClickEvent => ShowCredits
-         Simulants.TitleSingleplayer.ClickEvent => ShowGameplay
+         Simulants.TitleMultiplayer.ClickEvent => ShowMultiplayerGame
+         Simulants.TitleSingleplayer.ClickEvent => ShowSingleplayerGame
          Simulants.TitleExit.ClickEvent => Exit
          Simulants.CreditsBack.ClickEvent => ShowTitle
          Simulants.Gameplay.QuitEvent => ShowTitle]
 
 
     // here we handle the above messages
-    override this.Message (_, message, _, _) =
+    override this.Message (_, message, game, world) =
         match message with
         | ShowTitle -> just Title
         | ShowCredits -> just Credits
         | ShowGameplay -> just Gameplay
+        | ShowSingleplayerGame -> 
+            World.publish () Events.StartSingleplayerGame game world
+            just Gameplay
+        | ShowMultiplayerGame -> 
+            World.publish () Events.StartMultiplayerGame game world
+            just Gameplay
 
     // here we handle the above commands
     override this.Command (_, command, _, world) =

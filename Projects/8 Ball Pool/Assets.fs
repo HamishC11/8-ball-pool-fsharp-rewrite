@@ -18,6 +18,22 @@ module Assets =
         let backButtonImage = asset<Image> PackageName "back_button"
         let backButtonHoverImage = asset<Image> PackageName "back_button_hover"
         let continuebuttonImage2 = asset<Image> PackageName "continue_button"
+        let continuebuttonHoverImage = asset<Image> PackageName "continue_button_hover"
+
+        let singleplayerButtonImage = asset<Image> PackageName "1_player_button"
+        let singleplayerButtonHoverImage = asset<Image> PackageName "1_player_button_hover"
+        let multiplayerButtonImage = asset<Image> PackageName "2_players_button"
+        let multiplayerButtonHoverImage = asset<Image> PackageName "2_players_button_hover"
+
+
+        let playerVsPlayer = asset<Image> PackageName "2_players_button"
+        let playerVsPlayerHover = asset<Image> PackageName "2_players_button_hover"
+        let playerVsComputer = asset<Image> PackageName "1_player_button"
+        let playerVsComputerHover = asset<Image> PackageName "1_player_button_hover"
+        let continuebuttonImage = asset<Image> PackageName "continue_button"
+        let controlsImage = asset<Image> PackageName "controls"
+
+        let backgroundFont = asset<Font> PackageName "impact"
 
 
 
