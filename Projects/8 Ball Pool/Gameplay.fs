@@ -45,6 +45,14 @@ type Ball =
           IsMoving = false
           Pocketed = false}
 
+    static member empty() =
+        { Position = v3 1000.0f 1000.0f 0.0f
+          Size = GlobalBallSize
+          Velocity = v3 0.0f 0.0f 0.0f
+          Type = BallType.Null
+          IsMoving = false
+          Pocketed = false}
+
     member this.positionNext =
         this.Position + this.Velocity
 
@@ -95,7 +103,7 @@ type Gameplay =
           Player2 = Player.initial "Player 2"
           AITurn = true
           Turn = "P1"
-          NextTurn = ""
+          NextTurn = "P1"
           TurnPlayed = true
           Aiming = true
           FirstHit = BallType.Null
@@ -178,7 +186,7 @@ type Gameplay =
                 let cue =
                     // handle all cue movements when no balls are moving and game is not paused
                     if aiming && gameplay.GameplayState = Playing then
-                        if gameplay.AITurn && gameplay.GameMode = Mode.Singleplayer then
+                        if gameplay.Turn = "P2" && gameplay.GameMode = Mode.Singleplayer then
                             // Hide cue during AI turn
                             let offscreenPos = v2 999.0f 999.0f
                             { cue with Position = v3 offscreenPos.X offscreenPos.Y cueBall.Position.Z }
@@ -403,10 +411,10 @@ type Gameplay =
                 // accumulator for fold
                 let initAcc = 
                     ( Map.empty<string, Ball>,                     // updated balls
-                      Ball.make (v3 0.0f 0.0f 0.0f) BallType.Null, // last ball pocketed in this frame
+                      gameplay.lastBallPocketed, // last ball pocketed in this frame
                       gameplay.Player1.Score,                     // p1 score
                       gameplay.Player2.Score,                     // p2 score
-                      gameplay.Turn,                              // turn
+                      gameplay.NextTurn,                              // turn
                       gameplay.BallPocketed,                       // pocketed
                       gameplay.Player1.Colour,                     //p1 ball colour
                       gameplay.Player2.Colour,                     //p2 ball colour
@@ -489,8 +497,13 @@ type Gameplay =
                     let player = if gameplay.Turn = "BallInHandP1" then "P1" else "P2"
 
                     let mousePos = World.getMousePosition2dScreen world
-                    let desiredPos = v3 mousePos.X mousePos.Y 0.0f
-
+                    let desiredPos = 
+                        match gameplay.GameMode with
+                        | Multiplayer -> v3 mousePos.X mousePos.Y 0.0f
+                        | Singleplayer -> 
+                            if player = "P2" then cueBallStartingPos
+                            else v3 mousePos.X mousePos.Y 0.0f
+    
                     // check if within bounds of the table
                     let withinBounds =
                         desiredPos.X >= -285.0f && desiredPos.X <= 285.0f &&
@@ -507,21 +520,38 @@ type Gameplay =
                     // only update if valid
                     let cueBall = gameplay.Balls.["Cue Ball"]
                     let updatedCueBall =
-                        if withinBounds && not overlapping then
-                            { cueBall with Position = desiredPos; Velocity = v3 0.0f 0.0f 0.0f }
-                        else
-                            cueBall
+                        match gameplay.GameMode with
+                        | Multiplayer ->
+                            if withinBounds && not overlapping then
+                                { cueBall with Position = desiredPos; Velocity = v3 0.0f 0.0f 0.0f }
+                            else cueBall
+                        | Singleplayer -> 
+                            if withinBounds && not overlapping then
+                                { cueBall with Position = desiredPos; Velocity = v3 0.0f 0.0f 0.0f }
+                            else cueBall
+                            
 
                     // commit placement on click
                     let nextTurn =
-                        if World.isMouseButtonClicked MouseButton.MouseLeft world then
-                            if player = "P1" then "P2" else "P1"
-                        else
-                            gameplay.Turn
+                        match gameplay.GameMode with
+                            | Multiplayer ->
+                                if World.isMouseButtonClicked MouseButton.MouseLeft world then
+                                    if player = "P1" then "P2" else "P1"
+                                else
+                                    gameplay.Turn
+                            | Singleplayer -> 
+                                if player = "P2" then
+                                    "P1"
+                                elif World.isMouseButtonClicked MouseButton.MouseLeft world then
+                                    "P2"
+                                else
+                                    gameplay.Turn
+                    let newNextTurn = if nextTurn = "P1" then "P2" else "P1"
 
                     { gameplay with
                         Balls = Map.add "Cue Ball" updatedCueBall gameplay.Balls
                         Turn = nextTurn
+                        NextTurn = newNextTurn
                         Aiming = (nextTurn = "P1" || nextTurn = "P2") } // allow aiming only after placement
                 | _ -> gameplay
 
@@ -563,15 +593,16 @@ type Gameplay =
                         else gameplay.NextTurn, false, gameplay.AITurn // use correct turn if balls are pocketed
                     else gameplay.Turn, gameplay.TurnPlayed, gameplay.AITurn
 
-                let firstHit, ballPocketed =
+                let firstHit, ballPocketed, lastBallPocketed =
                     if gameplay.TurnPlayed then
-                        BallType.Null, false
+                        BallType.Null, false, Ball.empty()
                     else
-                        gameplay.FirstHit, gameplay.BallPocketed
+                        gameplay.FirstHit, gameplay.BallPocketed, gameplay.lastBallPocketed
                 { gameplay with
                     Turn = newTurn
                     TurnPlayed = turnPlayed
                     BallPocketed = ballPocketed
+                    lastBallPocketed = lastBallPocketed
                     FirstHit = firstHit 
                     AITurn = AIturn}
 
@@ -624,11 +655,19 @@ type Gameplay =
 
             // win/lose
             let gameplay =
-                let P1 = gameplay.Player1
-                let P2 = gameplay.Player2
-                if gameplay.Turn = "P1Win" then {gameplay with Player1.WinCount = P1.WinCount + 1}
-                elif gameplay.Turn = "P2Win" then {gameplay with Player2.WinCount = P2.WinCount + 1}
-                else gameplay
+                match gameplay.Turn with // reset with score changes and gamemode preserved
+                | "P1Win" -> { Gameplay.initial with
+                                Player1 = { Gameplay.initial.Player1 with WinCount = gameplay.Player1.WinCount + 1 }
+                                Player2 = { Gameplay.initial.Player2 with WinCount = gameplay.Player2.WinCount}
+                                GameMode = gameplay.GameMode
+                                GameplayState = Playing} //avoid controls pop up
+                | "P2Win" -> { Gameplay.initial with
+                                Player1 = { Gameplay.initial.Player1 with WinCount = gameplay.Player1.WinCount }
+                                Player2 = { Gameplay.initial.Player2 with WinCount = gameplay.Player2.WinCount + 1} 
+                                GameMode = gameplay.GameMode
+                                GameplayState = Playing}
+                | _ -> gameplay
+
             // Handle resume timer
             let gameplay =
                 if gameplay.ResumeTimer > 0L then
@@ -651,6 +690,7 @@ type Gameplay =
 type GameplayMessage =
     | StartSingleplayer
     | StartMultiplayer
+    | ResetTable
     | FinishQuitting
     | Update
     | TimeUpdate
@@ -670,6 +710,8 @@ module GameplayExtensions =
         member this.SetGameplay value world = this.SetModelGeneric<Gameplay> value world
         member this.Gameplay = this.ModelGeneric<Gameplay> ()
         member this.QuitEvent = Events.QuitEvent --> this
+
+
 
 // this is the dispatcher that defines the behavior of the screen where gameplay takes place.
 type GameplayDispatcher () =
@@ -819,6 +861,7 @@ type GameplayDispatcher () =
                   Content.text "Player1Wins"
                       [ Entity.Text := gameplay.Player1.WinCount.ToString()
                         Entity.Position == v3 30.0f 32.0f 0.0f
+                        Entity.Elevation == 0.5f
                         Entity.TextColor := ogColour
                         Entity.Font == Assets.Gui.backgroundFont
                         Entity.FontSizing == Some(60)
@@ -826,6 +869,7 @@ type GameplayDispatcher () =
                   Content.text "Player2Wins"
                       [ Entity.Text := gameplay.Player2.WinCount.ToString()
                         Entity.Position == v3 -29.0f 32.0f 0.0f
+                        Entity.Elevation == 0.5f
                         Entity.TextColor := ogColour
                         Entity.Font == Assets.Gui.backgroundFont
                         Entity.FontSizing == Some(60)
@@ -838,6 +882,18 @@ type GameplayDispatcher () =
                   Content.text "ScoreP2"
                      [Entity.Text := "Player 2: " + gameplay.Player2.Score.ToString()
                       Entity.Position == v3 130f 168.0f 0.0f]
+
+                  // ball in hand display
+                  let player = 
+                    match gameplay.Turn with
+                    | "BallInHandP1" -> "Player 1"
+                    | "BallInHandP2" -> "Player 2"
+                    | _ -> "yo mama"
+                  if gameplay.Turn = "BallInHandP1" || gameplay.Turn = "BallInHandP2" then
+                      Content.text "BallInHandIndicator"
+                         [Entity.Text := "Ball in hand for " + player
+                          Entity.Position == v3 -144f -168.0f 0.0f
+                          Entity.Size == v3 160.0f 50.0f 0.0f]
 
                   // icons for turn indication
                   let iconForColour colour =
