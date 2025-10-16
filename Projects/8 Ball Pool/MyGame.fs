@@ -87,3 +87,7 @@ type MyGameDispatcher () =
          Content.screenWithGroupFromFile Simulants.Credits.Name (Dissolve (Constants.Dissolve.Default, None)) "Assets/Gui/Credits.nugroup" [] []
          Content.screen<GameplayDispatcher> Simulants.Gameplay.Name (Dissolve (Constants.Dissolve.Default, None)) [] []
         ]
+
+    override this.Update (_, world) =
+        if World.isKeyboardAltDown world && World.isKeyboardKeyDown KeyboardKey.F4 world then
+            World.exit world
